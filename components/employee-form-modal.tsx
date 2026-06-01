@@ -6,12 +6,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Textarea } from '@/components/ui/textarea';
 import { Employee } from '@/types/employee';
-import { Plus, RotateCcw, X } from 'lucide-react';
+import { Plus, RotateCcw } from 'lucide-react';
 import { useState } from 'react';
 
 interface EmployeeFormModalProps {
@@ -20,30 +17,39 @@ interface EmployeeFormModalProps {
   onSubmit?: (employee: Employee) => void;
 }
 
+const inp = "w-full h-11 px-4 rounded-xl border border-gray-200 bg-white text-sm text-gray-800 placeholder:text-gray-300 outline-none focus:border-[#4BBFCC] focus:ring-2 focus:ring-[#4BBFCC]/15 transition-all";
+const sel = "h-11 w-full rounded-xl border border-gray-200 bg-white text-sm text-gray-800 focus:border-[#4BBFCC] focus:ring-2 focus:ring-[#4BBFCC]/15 transition-all";
+const lbl = "block text-[12px] font-semibold uppercase tracking-wider text-gray-400 mb-2";
+
+function SectionTitle({ title }: { title: string }) {
+  return (
+    <div className="flex items-center gap-3 mb-5">
+      <div className="w-[3px] h-5 rounded-full bg-[#4BBFCC]" />
+      <span className="text-[11px] font-bold uppercase tracking-widest text-[#4BBFCC]">{title}</span>
+      <div className="flex-1 h-px bg-[#4BBFCC]/15" />
+    </div>
+  );
+}
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex flex-col">
+      <label className={lbl}>{label}</label>
+      {children}
+    </div>
+  );
+}
+
 export function EmployeeFormModal({ isOpen, onClose, onSubmit }: EmployeeFormModalProps) {
   const [formData, setFormData] = useState<Partial<Employee>>({
-    nombreCompleto: '',
-    cedula: '',
-    fechaIngreso: '',
-    fechaEgreso: '',
-    cargo: '',
-    restaurante: 'DF',
-    cumpleanos: '',
-    direccion: '',
-    numeroTelefono: '',
-    numeroEmergencia: '',
-    inss: '',
-    cuentaBac: '',
-    diasTrabajados: 0,
-    fechaRetiro: '',
-    observaciones: '',
-    estadoCivil: 'soltero',
-    estado: 'activo',
+    nombreCompleto: '', cedula: '', fechaIngreso: '', fechaEgreso: '',
+    cargo: '', restaurante: 'DF', cumpleanos: '', direccion: '',
+    numeroTelefono: '', numeroEmergencia: '', inss: '', cuentaBac: '',
+    diasTrabajados: 0, fechaRetiro: '', observaciones: '', estadoCivil: 'soltero', estado: 'activo',
   });
 
-  const handleChange = (field: keyof Employee, value: any) => {
+  const set = (field: keyof Employee, value: any) =>
     setFormData(prev => ({ ...prev, [field]: value }));
-  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -53,299 +59,217 @@ export function EmployeeFormModal({ isOpen, onClose, onSubmit }: EmployeeFormMod
     }
     const employee: Employee = {
       id: Date.now().toString(),
-      nombreCompleto: formData.nombreCompleto,
-      cedula: formData.cedula,
-      fechaIngreso: formData.fechaIngreso || '',
-      fechaEgreso: formData.fechaEgreso || '',
-      cargo: formData.cargo || '',
-      restaurante: (formData.restaurante as any) || 'DF',
-      cumpleanos: formData.cumpleanos || '',
-      direccion: formData.direccion || '',
-      numeroTelefono: formData.numeroTelefono || '',
-      numeroEmergencia: formData.numeroEmergencia || '',
-      barrio: '',
-      inss: formData.inss || '',
-      cuentaBac: formData.cuentaBac || '',
-      diasTrabajados: formData.diasTrabajados || 0,
-      fechaRetiro: formData.fechaRetiro || '',
+      nombreCompleto: formData.nombreCompleto!, cedula: formData.cedula!,
+      fechaIngreso: formData.fechaIngreso || '', fechaEgreso: formData.fechaEgreso || '',
+      cargo: formData.cargo || '', restaurante: (formData.restaurante as any) || 'DF',
+      cumpleanos: formData.cumpleanos || '', direccion: formData.direccion || '',
+      numeroTelefono: formData.numeroTelefono || '', numeroEmergencia: formData.numeroEmergencia || '',
+      barrio: '', inss: formData.inss || '', cuentaBac: formData.cuentaBac || '',
+      diasTrabajados: formData.diasTrabajados || 0, fechaRetiro: formData.fechaRetiro || '',
       observaciones: formData.observaciones || '',
       estadoCivil: (formData.estadoCivil as any) || 'soltero',
       estado: (formData.estado as any) || 'activo',
     };
     onSubmit?.(employee);
-    handleReset();
+    reset();
   };
 
-  const handleReset = () => {
-    setFormData({
-      nombreCompleto: '',
-      cedula: '',
-      fechaIngreso: '',
-      fechaEgreso: '',
-      cargo: '',
-      restaurante: 'DF',
-      cumpleanos: '',
-      direccion: '',
-      numeroTelefono: '',
-      numeroEmergencia: '',
-      inss: '',
-      cuentaBac: '',
-      diasTrabajados: 0,
-      fechaRetiro: '',
-      observaciones: '',
-      estadoCivil: 'soltero',
-      estado: 'activo',
-    });
-  };
+  const reset = () => setFormData({
+    nombreCompleto: '', cedula: '', fechaIngreso: '', fechaEgreso: '',
+    cargo: '', restaurante: 'DF', cumpleanos: '', direccion: '',
+    numeroTelefono: '', numeroEmergencia: '', inss: '', cuentaBac: '',
+    diasTrabajados: 0, fechaRetiro: '', observaciones: '', estadoCivil: 'soltero', estado: 'activo',
+  });
 
-  const handleClose = () => {
-    handleReset();
-    onClose();
-  };
+  const handleClose = () => { reset(); onClose(); };
 
   return (
     <Dialog open={isOpen} onOpenChange={handleClose}>
-      <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto bg-white">
-        <DialogHeader className="border-b border-[#80CED7]/20 pb-4">
-          <div className="flex items-center justify-between w-full">
-            <DialogTitle className="text-2xl font-bold text-foreground">Registrar Nuevo Empleado</DialogTitle>
+      <DialogContent className="w-[98vw] max-w-[1500px] max-h-[92vh] overflow-y-auto bg-[#f8fafb] rounded-2xl p-0 shadow-xl border border-gray-100">
+
+        {/* Header */}
+        <DialogHeader className="sticky top-0 z-10 bg-white px-10 pt-7 pb-6 border-b border-gray-100 rounded-t-2xl">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-1 h-8 rounded-full bg-[#4BBFCC]" />
+              <div>
+                <DialogTitle className="text-xl font-semibold text-gray-800 leading-none">
+                  Registrar Nuevo Empleado
+                </DialogTitle>
+                <p className="text-sm text-gray-400 mt-1">Completa la información del colaborador</p>
+              </div>
+            </div>
+            <span className="text-xs text-gray-400 bg-gray-100 px-3 py-1.5 rounded-full">* Campos requeridos</span>
           </div>
         </DialogHeader>
 
-        <form onSubmit={handleSubmit} className="space-y-6 p-6">
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            {/* Nombre Completo - Requerido */}
-            <div className="space-y-2 lg:col-span-2">
-              <label className="text-sm font-medium text-foreground">Nombre Completo *</label>
-              <Input
-                placeholder="Juan García López"
-                value={formData.nombreCompleto || ''}
-                onChange={(e) => handleChange('nombreCompleto', e.target.value)}
-                className="bg-[#80CED7]/10 border-[#80CED7]/30 text-black"
-                required
-              />
-            </div>
+        <form onSubmit={handleSubmit} className="px-10 py-8 space-y-8">
 
-            {/* Cédula - Requerido */}
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-foreground">Cédula *</label>
-              <Input
-                placeholder="001-1234567-8"
-                value={formData.cedula || ''}
-                onChange={(e) => handleChange('cedula', e.target.value)}
-                className="bg-[#80CED7]/10 border-[#80CED7]/30 text-black"
-                required
-              />
-            </div>
-
-            {/* Cargo */}
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-foreground">Cargo</label>
-              <Input
-                placeholder="Chef, Mesero, etc."
-                value={formData.cargo || ''}
-                onChange={(e) => handleChange('cargo', e.target.value)}
-                className="bg-[#80CED7]/10 border-[#80CED7]/30 text-black"
-              />
-            </div>
-
-            {/* Restaurante */}
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-foreground">Restaurante</label>
-              <Select value={formData.restaurante || 'DF'} onValueChange={(value) => handleChange('restaurante', value)}>
-                <SelectTrigger className="bg-[#80CED7]/10 border-[#80CED7]/30 text-black">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="BARRIO CAFÉ">BARRIO CAFÉ</SelectItem>
-                  <SelectItem value="BARRIO CAFÉ (CENTRAL)">BARRIO CAFÉ (CENTRAL)</SelectItem>
-                  <SelectItem value="FOOD STOP">FOOD STOP</SelectItem>
-                  <SelectItem value="CONTENTERA">CONTENTERA</SelectItem>
-                  <SelectItem value="DF">DF</SelectItem>
-                  <SelectItem value="AJÍ">AJÍ</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            {/* Fecha Ingreso */}
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-foreground">Fecha Ingreso</label>
-              <Input
-                type="date"
-                value={formData.fechaIngreso || ''}
-                onChange={(e) => handleChange('fechaIngreso', e.target.value)}
-                className="bg-[#80CED7]/10 border-[#80CED7]/30 text-black"
-              />
-            </div>
-
-            {/* Cumpleaños */}
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-foreground">Cumpleaños</label>
-              <Input
-                type="date"
-                value={formData.cumpleanos || ''}
-                onChange={(e) => handleChange('cumpleanos', e.target.value)}
-                className="bg-[#80CED7]/10 border-[#80CED7]/30 text-black"
-              />
-            </div>
-
-            {/* Teléfono */}
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-foreground">Teléfono</label>
-              <Input
-                placeholder="+505 1234-8732"
-                value={formData.numeroTelefono || ''}
-                onChange={(e) => handleChange('numeroTelefono', e.target.value)}
-                className="bg-[#80CED7]/10 border-[#80CED7]/30 text-black"
-              />
-            </div>
-
-            {/* Teléfono Emergencia */}
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-foreground">Teléfono Emergencia</label>
-              <Input
-                placeholder="+505 1234-8732"
-                value={formData.numeroEmergencia || ''}
-                onChange={(e) => handleChange('numeroEmergencia', e.target.value)}
-                className="bg-[#80CED7]/10 border-[#80CED7]/30 text-black"
-              />
-            </div>
-
-            {/* INSS */}
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-foreground">INSS</label>
-              <Input
-                placeholder="INSS-001"
-                value={formData.inss || ''}
-                onChange={(e) => handleChange('inss', e.target.value)}
-                className="bg-[#80CED7]/10 border-[#80CED7]/30 text-black"
-              />
-            </div>
-
-            {/* Cuenta BAC */}
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-foreground">Cuenta BAC</label>
-              <Input
-                placeholder="123456789"
-                value={formData.cuentaBac || ''}
-                onChange={(e) => handleChange('cuentaBac', e.target.value)}
-                className="bg-[#80CED7]/10 border-[#80CED7]/30 text-black"
-              />
-            </div>
-
-            {/* Estado Civil */}
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-foreground">Estado Civil</label>
-              <Select value={formData.estadoCivil || 'soltero'} onValueChange={(value) => handleChange('estadoCivil', value)}>
-                <SelectTrigger className="bg-[#80CED7]/10 border-[#80CED7]/30 text-black">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="soltero">Soltero</SelectItem>
-                  <SelectItem value="casado">Casado</SelectItem>
-                  <SelectItem value="divorciado">Divorciado</SelectItem>
-                  <SelectItem value="viudo">Viudo</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            {/* Estado */}
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-foreground">Estado</label>
-              <Select value={formData.estado || 'activo'} onValueChange={(value) => handleChange('estado', value)}>
-                <SelectTrigger className="bg-[#80CED7]/10 border-[#80CED7]/30 text-black">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="activo">Activo</SelectItem>
-                  <SelectItem value="inactivo">Inactivo</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            {/* Días Trabajados */}
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-foreground">Días Trabajados</label>
-              <Input
-                type="number"
-                value={formData.diasTrabajados || 0}
-                onChange={(e) => handleChange('diasTrabajados', parseInt(e.target.value) || 0)}
-                className="bg-[#80CED7]/10 border-[#80CED7]/30 text-black"
-              />
-            </div>
-
-            {/* Fecha Egreso */}
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-foreground">Fecha Egreso</label>
-              <Input
-                type="date"
-                value={formData.fechaEgreso || ''}
-                onChange={(e) => handleChange('fechaEgreso', e.target.value)}
-                className="bg-[#80CED7]/10 border-[#80CED7]/30 text-black"
-              />
-            </div>
-
-            {/* Fecha Retiro */}
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-foreground">Fecha Retiro</label>
-              <Input
-                type="date"
-                value={formData.fechaRetiro || ''}
-                onChange={(e) => handleChange('fechaRetiro', e.target.value)}
-                className="bg-[#80CED7]/10 border-[#80CED7]/30 text-black"
-              />
+          {/* ── SECCIÓN 1: Datos Personales ── */}
+          <div className="bg-white rounded-2xl p-7 border border-gray-100 shadow-sm">
+            <SectionTitle title="Datos Personales" />
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-x-8 gap-y-6">
+              <div className="md:col-span-3">
+                <Field label="Nombre Completo *">
+                  <input placeholder="Juan Manuel García López" value={formData.nombreCompleto || ''} onChange={e => set('nombreCompleto', e.target.value)} className={inp} required />
+                </Field>
+              </div>
+              <div className="md:col-span-2">
+                <Field label="Cédula *">
+                  <input placeholder="001-120597-0003A" value={formData.cedula || ''} onChange={e => set('cedula', e.target.value)} className={inp} required />
+                </Field>
+              </div>
+              <div>
+                <Field label="Estado Civil">
+                  <Select value={formData.estadoCivil || 'soltero'} onValueChange={v => set('estadoCivil', v)}>
+                    <SelectTrigger className={sel}><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="soltero">Soltero/a</SelectItem>
+                      <SelectItem value="casado">Casado/a</SelectItem>
+                      <SelectItem value="divorciado">Divorciado/a</SelectItem>
+                      <SelectItem value="viudo">Viudo/a</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </Field>
+              </div>
+              <div className="md:col-span-2 xl:col-span-3">
+                <Field label="Dirección">
+                  <input placeholder="Calle, zona, barrio, ciudad..." value={formData.direccion || ''} onChange={e => set('direccion', e.target.value)} className={inp} />
+                </Field>
+              </div>
             </div>
           </div>
 
-          {/* Dirección */}
-          <div className="space-y-2">
-            <label className="text-sm font-medium text-foreground">Dirección</label>
-            <Input
-              placeholder="Calle, número, apartamento..."
-              value={formData.direccion || ''}
-              onChange={(e) => handleChange('direccion', e.target.value)}
-              className="bg-[#80CED7]/10 border-[#80CED7]/30 text-black"
-            />
-          </div>
+          {/* ── SECCIÓN 2: Laboral + Contacto (lado a lado) ── */}
 
-          {/* Observaciones */}
-          <div className="space-y-2">
-            <label className="text-sm font-medium text-foreground">Observaciones</label>
-            <Textarea
-              placeholder="Notas adicionales del empleado..."
-              value={formData.observaciones || ''}
-              onChange={(e) => handleChange('observaciones', e.target.value)}
-              className="bg-[#80CED7]/10 border-[#80CED7]/30 text-black"
-              rows={3}
-            />
-          </div>
+            {/* Laboral */}
+            <div className="bg-white rounded-2xl p-7 border border-gray-100 shadow-sm">
+              <SectionTitle title="Información Laboral" />
+              <div className="grid grid-cols-2 gap-x-8 gap-y-6">
+                <div>
+                  <Field label="Cargo">
+                    <input placeholder="Chef, Mesero, Cajero..." value={formData.cargo || ''} onChange={e => set('cargo', e.target.value)} className={inp} />
+                  </Field>
+                </div>
+                <div>
+                  <Field label="Restaurante">
+                    <Select value={formData.restaurante || 'DF'} onValueChange={v => set('restaurante', v)}>
+                      <SelectTrigger className={sel}><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="BARRIO CAFÉ">BARRIO CAFÉ</SelectItem>
+                        <SelectItem value="BARRIO CAFÉ (CENTRAL)">BARRIO CAFÉ (CENTRAL)</SelectItem>
+                        <SelectItem value="CONTENTERA">LA CONTENTERA</SelectItem>
+                        <SelectItem value="DF">DF</SelectItem>
+                        <SelectItem value="AJÍ">AJÍ</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </Field>
+                </div>
+                   <div>
+                <Field label="Estado">
+                  <Select value={formData.estado || 'activo'} onValueChange={v => set('estado', v)}>
+                    <SelectTrigger className={sel}><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="activo">Activo</SelectItem>
+                      <SelectItem value="inactivo">Inactivo</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </Field>
+              </div>
+                <div>
+                  <Field label="Días Trabajados">
+                    <input
+                      type="number" min={0} value={formData.diasTrabajados ?? ''} onChange={e => set('diasTrabajados', e.target.value === ''? undefined: Number(e.target.value))}className={inp}/>
+                  </Field>
+                </div>
+              </div>
+            </div>
 
-          {/* Botones */}
-          <div className="flex gap-3 justify-end border-t border-[#80CED7]/20 pt-6">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={handleClose}
-              className="gap-2 border-[#80CED7]/50 text-black hover:bg-[#80CED7]/10"
-            >
+            {/* Contacto */}
+            <div className="bg-white rounded-2xl p-7 border border-gray-100 shadow-sm">
+              <SectionTitle title="Contacto y Datos Financieros" />
+              <div className="grid grid-cols-2 gap-x-8 gap-y-6">
+                <div>
+                  <Field label="Teléfono Principal">
+                    <input placeholder="+505 8888-0000" value={formData.numeroTelefono || ''} onChange={e => set('numeroTelefono', e.target.value)} className={inp} />
+                  </Field>
+                </div>
+                <div>
+                  <Field label="Teléfono Emergencia">
+                    <input placeholder="+505 8888-0000" value={formData.numeroEmergencia || ''} onChange={e => set('numeroEmergencia', e.target.value)} className={inp} />
+                  </Field>
+                </div>
+                <div>
+                  <Field label="Número INSS">
+                    <input placeholder="INSS-001" value={formData.inss || ''} onChange={e => set('inss', e.target.value)} className={inp} />
+                  </Field>
+                </div>
+                <div>
+                  <Field label="Cuenta BAC">
+                    <input placeholder="123456789" value={formData.cuentaBac || ''} onChange={e => set('cuentaBac', e.target.value)} className={inp} />
+                  </Field>
+                </div>
+              </div>
+            </div>
+
+          {/* ── SECCIÓN 3: Fechas + Observaciones (lado a lado) ── */}
+            {/* Fechas */}
+            <div className="bg-white rounded-2xl p-7 border border-gray-100 shadow-sm">
+              <SectionTitle title="Fechas" />
+              <div className="grid grid-cols-2 gap-x-8 gap-y-6">
+                <div>
+                  <Field label="Cumpleaños">
+                    <input type="date" value={formData.cumpleanos || ''} onChange={e => set('cumpleanos', e.target.value)} className={inp} />
+                  </Field>
+                </div>
+                <div>
+                  <Field label="Fecha de Ingreso">
+                    <input type="date" value={formData.fechaIngreso || ''} onChange={e => set('fechaIngreso', e.target.value)} className={inp} />
+                  </Field>
+                </div>
+                <div>
+                  <Field label="Fecha de Egreso">
+                    <input type="date" value={formData.fechaEgreso || ''} onChange={e => set('fechaEgreso', e.target.value)} className={inp} />
+                  </Field>
+                </div>
+                <div>
+                  <Field label="Fecha de Retiro">
+                    <input type="date" value={formData.fechaRetiro || ''} onChange={e => set('fechaRetiro', e.target.value)} className={inp} />
+                  </Field>
+                </div>
+              </div>
+            </div>
+
+            {/* Observaciones */}
+            <div className="bg-white rounded-2xl p-7 border border-gray-100 shadow-sm">
+              <SectionTitle title="Observaciones" />
+              <Field label="Notas adicionales">
+                <textarea
+                  placeholder="Información adicional sobre el empleado..."
+                  value={formData.observaciones || ''}
+                  onChange={e => set('observaciones', e.target.value)}
+                  rows={5}
+                  className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-white text-sm text-gray-800 placeholder:text-gray-300 outline-none focus:border-[#4BBFCC] focus:ring-2 focus:ring-[#4BBFCC]/15 transition-all resize-none"
+                />
+              </Field>
+            </div>
+
+          {/* ── Botones ── */}
+          <div className="flex items-center justify-end gap-3 pt-2 pb-1 border-t border-gray-100">
+            <button type="button" onClick={handleClose}
+              className="h-11 px-6 rounded-xl text-sm font-medium text-gray-500 border border-gray-200 hover:bg-gray-50 transition-all">
               Cancelar
-            </Button>
-            <Button
-              type="button"
-              onClick={handleReset}
-              className="bg-[#80CED7] hover:bg-[#007EA7] text-white gap-2"
-            >
-              <RotateCcw className="w-4 h-4" />
-              Limpiar
-            </Button>
-            <Button
-              type="submit"
-              className="bg-[#80CED7] hover:bg-[#007EA7] text-white gap-2"
-            >
-              <Plus className="w-4 h-4" />
-              Registrar Empleado
-            </Button>
+            </button>
+            <button type="button" onClick={reset}
+              className="h-11 px-6 rounded-xl text-sm font-medium text-[#4BBFCC] border border-[#4BBFCC]/30 hover:bg-[#4BBFCC]/8 transition-all flex items-center gap-2">
+              <RotateCcw className="w-3.5 h-3.5" /> Limpiar
+            </button>
+            <button type="submit"
+              className="h-11 px-7 rounded-xl text-sm font-semibold text-white bg-[#4BBFCC] hover:bg-[#3aabb8] transition-all flex items-center gap-2 shadow-md shadow-[#4BBFCC]/20">
+              <Plus className="w-4 h-4" /> Registrar Empleado
+            </button>
           </div>
+
         </form>
       </DialogContent>
     </Dialog>
