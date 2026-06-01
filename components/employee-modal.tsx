@@ -1,11 +1,14 @@
 'use client';
 
-import { Employee } from '@/types/employee';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
-import { Textarea } from '@/components/ui/textarea';
+import { Employee } from '@/types/employee';
+import { Save } from 'lucide-react';
 import { useState, useEffect } from 'react';
 
 interface EmployeeModalProps {
@@ -16,9 +19,50 @@ interface EmployeeModalProps {
   isEditing?: boolean;
 }
 
-const RESTAURANTS = ['DF', 'Barrio Café', 'La Contentera', 'Food Stop'];
-const STATES = ['activo', 'inactivo'];
-const MARITAL_STATUS = ['soltero', 'casado', 'divorciado', 'viudo'];
+const inp = "w-full h-11 px-4 rounded-xl border border-gray-200 bg-white text-sm text-gray-800 placeholder:text-gray-300 outline-none focus:border-[#4BBFCC] focus:ring-2 focus:ring-[#4BBFCC]/15 transition-all";
+const sel = "h-11 w-full rounded-xl border border-gray-200 bg-white text-sm text-gray-800 focus:border-[#4BBFCC] focus:ring-2 focus:ring-[#4BBFCC]/15 transition-all";
+const lbl = "block text-[12px] font-semibold uppercase tracking-wider text-gray-400 mb-2";
+
+function SectionTitle({ title }: { title: string }) {
+  return (
+    <div className="flex items-center gap-3 mb-5">
+      <div className="w-[3px] h-5 rounded-full bg-[#4BBFCC]" />
+      <span className="text-[11px] font-bold uppercase tracking-widest text-[#4BBFCC]">{title}</span>
+      <div className="flex-1 h-px bg-[#4BBFCC]/15" />
+    </div>
+  );
+}
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex flex-col">
+      <label className={lbl}>{label}</label>
+      {children}
+    </div>
+  );
+}
+
+const EMPTY_EMPLOYEE: Employee = {
+  id: '',
+  nombreCompleto: '',
+  cedula: '',
+  fechaIngreso: '',
+  fechaEgreso: '',
+  cargo: '',
+  restaurante: 'DF',
+  cumpleanos: '',
+  direccion: '',
+  numeroTelefono: '',
+  numeroEmergencia: '',
+  barrio: '',
+  inss: '',
+  cuentaBac: '',
+  diasTrabajados: 0,
+  fechaRetiro: '',
+  observaciones: '',
+  estadoCivil: 'soltero',
+  estado: 'activo',
+};
 
 export function EmployeeModal({
   isOpen,
@@ -27,29 +71,7 @@ export function EmployeeModal({
   employee,
   isEditing = false,
 }: EmployeeModalProps) {
-  const [formData, setFormData] = useState<Employee>(
-    employee || {
-      id: Math.random().toString(),
-      nombreCompleto: '',
-      cedula: '',
-      fechaIngreso: '',
-      fechaEgreso: '',
-      cargo: '',
-      restaurante: 'DF',
-      cumpleanos: '',
-      direccion: '',
-      numeroTelefono: '',
-      numeroEmergencia: '',
-      barrio: '',
-      inss: '',
-      cuentaBac: '',
-      diasTrabajados: 0,
-      fechaRetiro: '',
-      observaciones: '',
-      estadoCivil: 'soltero',
-      estado: 'activo',
-    }
-  );
+  const [formData, setFormData] = useState<Employee>(employee || EMPTY_EMPLOYEE);
 
   useEffect(() => {
     if (employee) {
@@ -57,16 +79,12 @@ export function EmployeeModal({
     }
   }, [employee, isOpen]);
 
-  const handleChange = (field: keyof Employee, value: any) => {
-    setFormData((prev) => ({
-      ...prev,
-      [field]: value,
-    }));
-  };
+  const set = (field: keyof Employee, value: any) =>
+    setFormData(prev => ({ ...prev, [field]: value }));
 
   const handleSave = () => {
     if (!formData.nombreCompleto || !formData.cedula) {
-      alert('Por favor completa los campos obligatorios (Nombre y Cédula)');
+      alert('Por favor completa los campos requeridos: Nombre y Cédula');
       return;
     }
     onSave(formData);
@@ -75,240 +93,258 @@ export function EmployeeModal({
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>
-            {isEditing ? 'Editar Empleado' : 'Nuevo Empleado'}
-          </DialogTitle>
+      <DialogContent className="w-[98vw] max-w-[1500px] max-h-[92vh] overflow-y-auto bg-[#f8fafb] rounded-2xl p-0 shadow-xl border border-gray-100">
+
+        {/* Header */}
+        <DialogHeader className="sticky top-0 z-10 bg-white px-10 pt-7 pb-6 border-b border-gray-100 rounded-t-2xl">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-1 h-8 rounded-full bg-[#4BBFCC]" />
+              <div>
+                <DialogTitle className="text-xl font-semibold text-gray-800 leading-none">
+                  {isEditing ? 'Editar Empleado' : 'Actualizar Datos Empleado'}
+                </DialogTitle>
+                <p className="text-sm text-gray-400 mt-1">
+                  {isEditing ? 'Modifica la información del colaborador' : 'Información del colaborador'}
+                </p>
+              </div>
+            </div>
+            <span className="text-xs text-gray-400 bg-gray-100 px-3 py-1.5 rounded-full">* Campos requeridos</span>
+          </div>
         </DialogHeader>
 
-        <div className="grid grid-cols-2 gap-4">
-          {/* Nombre Completo */}
-          <div className="col-span-2">
-            <label className="text-sm font-medium">Nombre Completo *</label>
-            <Input
-              value={formData.nombreCompleto}
-              onChange={(e) => handleChange('nombreCompleto', e.target.value)}
-              placeholder="Ej: Juan García López"
-              className="mt-1"
-            />
+        <div className="px-10 py-8 space-y-8">
+
+          {/* ── SECCIÓN 1: Datos Personales ── */}
+          <div className="bg-white rounded-2xl p-7 border border-gray-100 shadow-sm">
+            <SectionTitle title="Datos Personales" />
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-x-8 gap-y-6">
+              <div className="md:col-span-3">
+                <Field label="Nombre Completo *">
+                  <input
+                    placeholder="Juan Manuel García López"
+                    value={formData.nombreCompleto}
+                    onChange={e => set('nombreCompleto', e.target.value)}
+                    className={inp}
+                  />
+                </Field>
+              </div>
+              <div className="md:col-span-2">
+                <Field label="Cédula *">
+                  <input
+                    placeholder="001-120597-0003A"
+                    value={formData.cedula}
+                    onChange={e => set('cedula', e.target.value)}
+                    className={inp}
+                  />
+                </Field>
+              </div>
+              <div>
+                <Field label="Estado Civil">
+                  <Select value={formData.estadoCivil || 'soltero'} onValueChange={v => set('estadoCivil', v)}>
+                    <SelectTrigger className={sel}><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="soltero">Soltero/a</SelectItem>
+                      <SelectItem value="casado">Casado/a</SelectItem>
+                      <SelectItem value="divorciado">Divorciado/a</SelectItem>
+                      <SelectItem value="viudo">Viudo/a</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </Field>
+              </div>
+              <div className="md:col-span-2 xl:col-span-3">
+                <Field label="Dirección">
+                  <input
+                    placeholder="Calle, zona, barrio, ciudad..."
+                    value={formData.direccion}
+                    onChange={e => set('direccion', e.target.value)}
+                    className={inp}
+                  />
+                </Field>
+              </div>
+            </div>
           </div>
 
-          {/* Cédula */}
-          <div>
-            <label className="text-sm font-medium">Cédula *</label>
-            <Input
-              value={formData.cedula}
-              onChange={(e) => handleChange('cedula', e.target.value)}
-              placeholder="Ej: 001-1234567-8"
-              className="mt-1"
-            />
+          {/* ── SECCIÓN 2: Información Laboral ── */}
+          <div className="bg-white rounded-2xl p-7 border border-gray-100 shadow-sm">
+            <SectionTitle title="Información Laboral" />
+            <div className="grid grid-cols-2 gap-x-8 gap-y-6">
+              <div>
+                <Field label="Cargo">
+                  <input
+                    placeholder="Chef, Mesero, Cajero..."
+                    value={formData.cargo}
+                    onChange={e => set('cargo', e.target.value)}
+                    className={inp}
+                  />
+                </Field>
+              </div>
+              <div>
+                <Field label="Restaurante">
+                  <Select value={formData.restaurante || 'DF'} onValueChange={v => set('restaurante', v)}>
+                    <SelectTrigger className={sel}><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="BARRIO CAFÉ">BARRIO CAFÉ</SelectItem>
+                      <SelectItem value="BARRIO CAFÉ (CENTRAL)">BARRIO CAFÉ (CENTRAL)</SelectItem>
+                      <SelectItem value="CONTENTERA">LA CONTENTERA</SelectItem>
+                      <SelectItem value="DF">DF</SelectItem>
+                      <SelectItem value="AJÍ">AJÍ</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </Field>
+              </div>
+              <div>
+                <Field label="Estado">
+                  <Select value={formData.estado || 'activo'} onValueChange={v => set('estado', v)}>
+                    <SelectTrigger className={sel}><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="activo">Activo</SelectItem>
+                      <SelectItem value="inactivo">Inactivo</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </Field>
+              </div>
+              <div>
+                <Field label="Días Trabajados">
+                  <input
+                    type="number"
+                    min={0}
+                    value={formData.diasTrabajados ?? ''}
+                    onChange={e => set('diasTrabajados', e.target.value === '' ? undefined : Number(e.target.value))}
+                    className={inp}
+                  />
+                </Field>
+              </div>
+            </div>
           </div>
 
-          {/* INSS */}
-          <div>
-            <label className="text-sm font-medium">INSS</label>
-            <Input
-              value={formData.inss}
-              onChange={(e) => handleChange('inss', e.target.value)}
-              placeholder="Ej: INSS-001"
-              className="mt-1"
-            />
+          {/* ── SECCIÓN 3: Contacto y Datos Financieros ── */}
+          <div className="bg-white rounded-2xl p-7 border border-gray-100 shadow-sm">
+            <SectionTitle title="Contacto y Datos Financieros" />
+            <div className="grid grid-cols-2 gap-x-8 gap-y-6">
+              <div>
+                <Field label="Teléfono Principal">
+                  <input
+                    placeholder="+505 8888-0000"
+                    value={formData.numeroTelefono}
+                    onChange={e => set('numeroTelefono', e.target.value)}
+                    className={inp}
+                  />
+                </Field>
+              </div>
+              <div>
+                <Field label="Teléfono Emergencia">
+                  <input
+                    placeholder="+505 8888-0000"
+                    value={formData.numeroEmergencia}
+                    onChange={e => set('numeroEmergencia', e.target.value)}
+                    className={inp}
+                  />
+                </Field>
+              </div>
+              <div>
+                <Field label="Número INSS">
+                  <input
+                    placeholder="INSS-001"
+                    value={formData.inss}
+                    onChange={e => set('inss', e.target.value)}
+                    className={inp}
+                  />
+                </Field>
+              </div>
+              <div>
+                <Field label="Cuenta BAC">
+                  <input
+                    placeholder="123456789"
+                    value={formData.cuentaBac}
+                    onChange={e => set('cuentaBac', e.target.value)}
+                    className={inp}
+                  />
+                </Field>
+              </div>
+            </div>
           </div>
 
-          {/* Fecha Ingreso */}
-          <div>
-            <label className="text-sm font-medium">Fecha Ingreso</label>
-            <Input
-              type="date"
-              value={formData.fechaIngreso}
-              onChange={(e) => handleChange('fechaIngreso', e.target.value)}
-              className="mt-1"
-            />
+          {/* ── SECCIÓN 4: Fechas ── */}
+          <div className="bg-white rounded-2xl p-7 border border-gray-100 shadow-sm">
+            <SectionTitle title="Fechas" />
+            <div className="grid grid-cols-2 gap-x-8 gap-y-6">
+              <div>
+                <Field label="Cumpleaños">
+                  <input
+                    type="date"
+                    value={formData.cumpleanos}
+                    onChange={e => set('cumpleanos', e.target.value)}
+                    className={inp}
+                  />
+                </Field>
+              </div>
+              <div>
+                <Field label="Fecha de Ingreso">
+                  <input
+                    type="date"
+                    value={formData.fechaIngreso}
+                    onChange={e => set('fechaIngreso', e.target.value)}
+                    className={inp}
+                  />
+                </Field>
+              </div>
+              <div>
+                <Field label="Fecha de Egreso">
+                  <input
+                    type="date"
+                    value={formData.fechaEgreso}
+                    onChange={e => set('fechaEgreso', e.target.value)}
+                    className={inp}
+                  />
+                </Field>
+              </div>
+              <div>
+                <Field label="Fecha de Retiro">
+                  <input
+                    type="date"
+                    value={formData.fechaRetiro}
+                    onChange={e => set('fechaRetiro', e.target.value)}
+                    className={inp}
+                  />
+                </Field>
+              </div>
+            </div>
           </div>
 
-          {/* Fecha Egreso */}
-          <div>
-            <label className="text-sm font-medium">Fecha Egreso</label>
-            <Input
-              type="date"
-              value={formData.fechaEgreso}
-              onChange={(e) => handleChange('fechaEgreso', e.target.value)}
-              className="mt-1"
-            />
+          {/* ── SECCIÓN 5: Observaciones ── */}
+          <div className="bg-white rounded-2xl p-7 border border-gray-100 shadow-sm">
+            <SectionTitle title="Observaciones" />
+            <Field label="Notas adicionales">
+              <textarea
+                placeholder="Información adicional sobre el empleado..."
+                value={formData.observaciones}
+                onChange={e => set('observaciones', e.target.value)}
+                rows={5}
+                className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-white text-sm text-gray-800 placeholder:text-gray-300 outline-none focus:border-[#4BBFCC] focus:ring-2 focus:ring-[#4BBFCC]/15 transition-all resize-none"
+              />
+            </Field>
           </div>
 
-          {/* Cargo */}
-          <div>
-            <label className="text-sm font-medium">Cargo</label>
-            <Input
-              value={formData.cargo}
-              onChange={(e) => handleChange('cargo', e.target.value)}
-              placeholder="Ej: Mesero"
-              className="mt-1"
-            />
+          {/* ── Botones ── */}
+          <div className="flex items-center justify-end gap-3 pt-2 pb-1 border-t border-gray-100">
+            <button
+              type="button"
+              onClick={onClose}
+              className="h-11 px-6 rounded-xl text-sm font-medium text-gray-500 border border-gray-200 hover:bg-gray-50 transition-all"
+            >
+              Cancelar
+            </button>
+            <button
+              type="button"
+              onClick={handleSave}
+              className="h-11 px-7 rounded-xl text-sm font-semibold text-white bg-[#4BBFCC] hover:bg-[#3aabb8] transition-all flex items-center gap-2 shadow-md shadow-[#4BBFCC]/20"
+            >
+              <Save className="w-4 h-4" /> {isEditing ? 'Guardar Cambios' : 'Actualizar'}
+            </button>
           </div>
 
-          {/* Restaurante */}
-          <div>
-            <label className="text-sm font-medium">Restaurante</label>
-            <Select value={formData.restaurante} onValueChange={(value) => handleChange('restaurante', value)}>
-              <SelectTrigger className="mt-1">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {RESTAURANTS.map((rest) => (
-                  <SelectItem key={rest} value={rest}>
-                    {rest}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          {/* Cumpleaños */}
-          <div>
-            <label className="text-sm font-medium">Cumpleaños</label>
-            <Input
-              type="date"
-              value={formData.cumpleanos}
-              onChange={(e) => handleChange('cumpleanos', e.target.value)}
-              className="mt-1"
-            />
-          </div>
-
-          {/* Dirección */}
-          <div className="col-span-2">
-            <label className="text-sm font-medium">Dirección</label>
-            <Input
-              value={formData.direccion}
-              onChange={(e) => handleChange('direccion', e.target.value)}
-              placeholder="Ej: Calle Principal 123"
-              className="mt-1"
-            />
-          </div>
-
-          {/* Barrio */}
-          <div>
-            <label className="text-sm font-medium">Barrio</label>
-            <Input
-              value={formData.barrio}
-              onChange={(e) => handleChange('barrio', e.target.value)}
-              placeholder="Ej: Centro"
-              className="mt-1"
-            />
-          </div>
-
-          {/* Número de Teléfono */}
-          <div>
-            <label className="text-sm font-medium">Teléfono</label>
-            <Input
-              value={formData.numeroTelefono}
-              onChange={(e) => handleChange('numeroTelefono', e.target.value)}
-              placeholder="Ej: 809-123-4567"
-              className="mt-1"
-            />
-          </div>
-
-          {/* Número de Emergencia */}
-          <div>
-            <label className="text-sm font-medium">Emergencia</label>
-            <Input
-              value={formData.numeroEmergencia}
-              onChange={(e) => handleChange('numeroEmergencia', e.target.value)}
-              placeholder="Ej: 809-987-6543"
-              className="mt-1"
-            />
-          </div>
-
-          {/* Cuenta BAC */}
-          <div>
-            <label className="text-sm font-medium">Cuenta BAC</label>
-            <Input
-              value={formData.cuentaBac}
-              onChange={(e) => handleChange('cuentaBac', e.target.value)}
-              placeholder="Ej: 1234567890"
-              className="mt-1"
-            />
-          </div>
-
-          {/* Días Trabajados */}
-          <div>
-            <label className="text-sm font-medium">Días Trabajados</label>
-            <Input
-              type="number"
-              value={formData.diasTrabajados}
-              onChange={(e) => handleChange('diasTrabajados', parseInt(e.target.value) || 0)}
-              className="mt-1"
-            />
-          </div>
-
-          {/* Fecha Retiro */}
-          <div>
-            <label className="text-sm font-medium">Fecha Retiro</label>
-            <Input
-              type="date"
-              value={formData.fechaRetiro}
-              onChange={(e) => handleChange('fechaRetiro', e.target.value)}
-              className="mt-1"
-            />
-          </div>
-
-          {/* Estado Civil */}
-          <div>
-            <label className="text-sm font-medium">Estado Civil</label>
-            <Select value={formData.estadoCivil} onValueChange={(value) => handleChange('estadoCivil', value)}>
-              <SelectTrigger className="mt-1">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {MARITAL_STATUS.map((status) => (
-                  <SelectItem key={status} value={status}>
-                    {status.charAt(0).toUpperCase() + status.slice(1)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          {/* Estado */}
-          <div>
-            <label className="text-sm font-medium">Estado</label>
-            <Select value={formData.estado} onValueChange={(value) => handleChange('estado', value)}>
-              <SelectTrigger className="mt-1">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {STATES.map((state) => (
-                  <SelectItem key={state} value={state}>
-                    {state.charAt(0).toUpperCase() + state.slice(1)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          {/* Observaciones */}
-          <div className="col-span-2">
-            <label className="text-sm font-medium">Observaciones</label>
-            <Textarea
-              value={formData.observaciones}
-              onChange={(e) => handleChange('observaciones', e.target.value)}
-              placeholder="Notas adicionales..."
-              className="mt-1"
-              rows={3}
-            />
-          </div>
         </div>
-
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose}>
-            Cancelar
-          </Button>
-          <Button onClick={handleSave}>
-            {isEditing ? 'Actualizar' : 'Crear'}
-          </Button>
-        </DialogFooter>
       </DialogContent>
     </Dialog>
   );

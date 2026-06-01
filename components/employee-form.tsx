@@ -147,7 +147,6 @@ export function EmployeeForm({ onSubmit, onReset }: EmployeeFormProps) {
               <SelectContent>
                 <SelectItem value="BARRIO CAFÉ">BARRIO CAFÉ</SelectItem>
                 <SelectItem value="BARRIO CAFÉ (CENTRAL)">BARRIO CAFÉ (CENTRAL)</SelectItem>
-                <SelectItem value="FOOD STOP">FOOD STOP</SelectItem>
                 <SelectItem value="CONTENTERA">CONTENTERA</SelectItem>
                 <SelectItem value="DF">DF</SelectItem>
                 <SelectItem value="AJÍ">AJÍ</SelectItem>
