@@ -1,4 +1,10 @@
 'use client';
+/**
+  COMPONENTE DE MENU ENCARGADO DE MOSTRAR TODOS LOS MODULOS DEL SISTEMA
+  --REGISTRO DE EMPLEADOS
+  --CONFIGURACION
+  --E INTEGRACION DE NUEVOS ELEMENTOS DE MENU.
+/**/
 
 import { Button } from '@/components/ui/button';
 import { Users, Settings } from 'lucide-react';

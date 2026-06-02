@@ -1,5 +1,8 @@
 'use client';
-
+/**
+  COMPONENTE ENCARGADO DEL MOSTRAR LOS DATOS DE EMPLEADOS ATRAVES DE UNA TABLA. 
+  PERMITE LA VISUALIZACION DEL EMPLEADO Y SUS DATOS MAS IMPORTANTES.
+/**/
 import {
   Table,
   TableBody,
@@ -37,15 +40,19 @@ export function EmployeeTable({ employees, isLoading, onEdit }: EmployeeTablePro
 
   return (
     <div className="border border-border rounded-lg overflow-hidden">
-      <Table>
+     {/* overflow-x-auto habilita el scroll horizontal cuando las columnas exceden el ancho del contenedor */}
+      <div className="overflow-x-auto">
+      <Table className="min-w-max">
         <TableHeader>
           <TableRow className="bg-muted">
             <TableHead className="font-semibold text-foreground">Cédula</TableHead>
-            <TableHead className="font-semibold text-foreground">Nombre</TableHead>
-            <TableHead className="font-semibold text-foreground">Cargo</TableHead>
+            <TableHead className="font-semibold text-foreground">Nombres y Apellidos</TableHead>
             <TableHead className="font-semibold text-foreground">Restaurante</TableHead>
+            <TableHead className="font-semibold text-foreground">Cargo</TableHead>
+            <TableHead className="font-semibold text-foreground">Telefono</TableHead>
+            <TableHead className="font-semibold text-foreground">Estado Civil</TableHead>
             <TableHead className="font-semibold text-foreground">Estado</TableHead>
-            <TableHead className="font-semibold text-foreground w-10">Acción</TableHead>
+            <TableHead className="font-semibold text-foreground min-w-[50px]">Actualizar</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -53,8 +60,10 @@ export function EmployeeTable({ employees, isLoading, onEdit }: EmployeeTablePro
             <TableRow key={employee.id} className="hover:bg-muted/50">
               <TableCell className="font-medium">{employee.cedula}</TableCell>
               <TableCell>{employee.nombreCompleto}</TableCell>
-              <TableCell>{employee.cargo}</TableCell>
               <TableCell>{employee.restaurante}</TableCell>
+              <TableCell>{employee.cargo}</TableCell>
+              <TableCell>{employee.numeroTelefono} </TableCell>
+              <TableCell>{employee.estadoCivil}</TableCell>
               <TableCell>
                 <span
                   className={`inline-block px-3 py-1 rounded-full text-sm font-medium ${
@@ -81,6 +90,7 @@ export function EmployeeTable({ employees, isLoading, onEdit }: EmployeeTablePro
           ))}
         </TableBody>
       </Table>
+     </div>
     </div>
   );
 }

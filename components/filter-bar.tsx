@@ -1,4 +1,14 @@
 'use client';
+/**
+  COMPONENTE ENCARGADO DE FILTRAR TODOS LOS DATOS DE UN EMPLEADO
+  REALIZA BUSQUEDA POR CAMPOS COMO:
+  --NOMBRE
+  --CEDULA
+  --INSS
+  --ESTADO
+  --ESTADO CIVIL
+  --RESTAURANTE
+/**/
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';

@@ -1,5 +1,7 @@
 'use client';
-
+/**
+  COMPONENTE ENCARGADO DE LA PAGINACION DE LA TABLA QUE MUESTRA LOS DATOS DE EMPLEADOS
+/**/
 import { Button } from '@/components/ui/button';
 import {
   Select,

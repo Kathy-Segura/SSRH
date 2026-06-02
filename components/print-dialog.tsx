@@ -1,5 +1,8 @@
 'use client';
-
+/**
+  COMPONENTE ENCARGADO DE MOSTRAR EL PREVIEW DEL REPORTE E IMPRIMIR EL PDF.
+  FORMULARIO DE PREVIEW ANTES DE ENTRAR AL CUADRO DE IMPRESION.
+/**/
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -301,15 +304,15 @@ export function PrintDialog({
         <DialogHeader>
           <DialogTitle className="text-[#007EA7]">Generar Reporte de Empleados</DialogTitle>
           <DialogDescription>
-            Se imprimirá un reporte profesional con {employees.length} empleado
-            {employees.length !== 1 ? 's' : ''} basado en los filtros actuales.
+            Se imprimirá un reporte con {employees.length} empleado
+            {employees.length !== 1 ? 's' : ''} basado en los filtros.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
           <div className="bg-[#80CED7]/10 p-4 rounded-lg border border-[#80CED7]/30">
             <p className="text-sm text-gray-700">
               El reporte incluirá todos los registros de empleados que coinciden con los filtros
-              aplicados. Se abrirá una ventana de impresión en tu navegador con un formato profesional.
+              aplicados. Se abrirá una ventana de impresión en tu navegador.
             </p>
           </div>
           <div className="flex justify-end gap-2">

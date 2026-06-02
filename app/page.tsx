@@ -352,7 +352,7 @@ export default function Home() {
               {/* Barra de filtros retráctil */}
               <div className="space-y-3">
                 <div className="flex items-center justify-between">
-                  <h2 className="text-lg font-semibold text-black">Filtros</h2>
+                  <h2 className="text-lg font-semibold text-foreground">Filtros</h2>
                   <Button
                     variant="ghost"
                     size="sm"
@@ -431,7 +431,13 @@ export default function Home() {
         isOpen={isPrintDialogOpen}
         onClose={() => setIsPrintDialogOpen(false)}
         employees={filteredEmployees}
-        filters={filters}
+        filters={{ ...filters }}
+      />
+      <PrintDialog
+        isOpen={isPrintDialogOpen}
+        onClose={() => setIsPrintDialogOpen(false)}
+        employees={filteredEmployees}
+        filters={{ ...filters }}
       />
 
       {/* Employee Form Modal */}
