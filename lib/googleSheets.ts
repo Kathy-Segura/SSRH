@@ -2,12 +2,15 @@ import { google } from 'googleapis';
 
 const SHEET_NAME = 'Empleados'; // Nombre exacto de la pestaña en tu Google Sheet
 
-// Crea la autenticación usando las variables de entorno
 function getAuth() {
+  const key = process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, '\n');
+  console.log('Key starts with:', key?.substring(0, 40)); // solo los primeros 40 caracteres
+  console.log('Key includes BEGIN:', key?.includes('-----BEGIN'));
+  
   return new google.auth.GoogleAuth({
     credentials: {
       client_email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
-      private_key: process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
+      private_key: key,
     },
     scopes: ['https://www.googleapis.com/auth/spreadsheets'],
   });

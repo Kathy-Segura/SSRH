@@ -1,24 +1,57 @@
 import { NextResponse } from 'next/server';
-import { updateEmpleado } from '@/lib/googleSheets';
+import { getEmpleados, appendEmpleado } from '@/lib/googleSheets';
 
-// PUT /api/empleados/[id] — actualiza un empleado existente en Google Sheets
-// El [id] es el índice de la fila (0 = primera fila de datos, fila 2 en el Sheet)
-export async function PUT(
-  request: Request,
-  { params }: { params: { id: string } }
-) {
+// GET /api/empleados — carga todos los empleados desde Google Sheets
+export async function GET() {
   try {
-    const rowIndex = parseInt(params.id, 10);
+    const filas = await getEmpleados();
 
-    if (isNaN(rowIndex) || rowIndex < 0) {
-      return NextResponse.json(
-        { error: 'ID de empleado inválido' },
-        { status: 400 }
-      );
-    }
+    const empleados = filas
+      .filter((fila) => fila[0]) // ignorar filas completamente vacías
+      .map((fila, index) => ({
+        id: String(index),                  // el índice = número de fila (para edición)
+        nombreCompleto:     fila[0]  || '',
+        cedula:             fila[1]  || '',
+        fechaIngreso:       fila[2]  || '',
+        fechaEgreso:        fila[3]  || '',
+        cargo:              fila[4]  || '',
+        restaurante:        fila[5]  || '',
+        cumpleanos:         fila[6]  || '',
+        direccion:          fila[7]  || '',
+        numeroTelefono:     fila[8]  || '',
+        numeroEmergencia:   fila[9]  || '',
+        barrioCafe:         fila[10] || '',
+        df:                 fila[11] || '',
+        laContentera:       fila[12] || '',
+        foodStop:           fila[13] || '',
+        observaciones:      fila[14] || '',
+        inss:               fila[15] || '',
+        cuentaBac:          fila[16] || '',
+        diasTrabajados:     fila[17] ? Number(fila[17]) : 0,
+        fechaRetiro:        fila[18] || '',
+        estadoCivil:        fila[19] || 'soltero',
+        barrio:             fila[20] || '',
+        // Estado: si tiene fecha de retiro → inactivo, si no → activo
+        estado:             (fila[18] ? 'inactivo' : 'activo') as 'activo' | 'inactivo',
+      }));
 
+    return NextResponse.json({ empleados });
+
+  } catch (error) {
+    console.error('Error GET /api/empleados:', error);
+    return NextResponse.json(
+      { error: 'Error al obtener empleados desde Google Sheets' },
+      { status: 500 }
+    );
+  }
+}
+
+// POST /api/empleados — registra un nuevo empleado en Google Sheets
+export async function POST(request: Request) {
+  try {
     const body = await request.json();
 
+    // Validación básica de campos requeridos
     if (!body.nombreCompleto || !body.cedula) {
       return NextResponse.json(
         { error: 'Nombre completo y cédula son requeridos' },
@@ -26,39 +59,39 @@ export async function PUT(
       );
     }
 
-    // Misma estructura de columnas que el POST
+    // Armar la fila en el mismo orden que los encabezados del Sheet
     const fila = [
-      body.nombreCompleto,
-      body.cedula,
-      body.fechaIngreso       || '',
-      body.fechaEgreso        || '',
-      body.cargo              || '',
-      body.restaurante        || '',
-      body.cumpleanos         || '',
-      body.direccion          || '',
-      body.numeroTelefono     || '',
-      body.numeroEmergencia   || '',
-      body.barrioCafe         || '',
-      body.df                 || '',
-      body.laContentera       || '',
-      body.foodStop           || '',
-      body.observaciones      || '',
-      body.inss               || '',
-      body.cuentaBac          || '',
-      body.diasTrabajados     || '0',
-      body.fechaRetiro        || '',
-      body.estadoCivil        || '',
-      body.barrio             || '',
+      body.nombreCompleto,              // A: Nombres y Apellidos
+      body.cedula,                      // B: Cédula
+      body.fechaIngreso       || '',    // C: Fecha Ingreso
+      body.fechaEgreso        || '',    // D: Fecha Egreso
+      body.cargo              || '',    // E: Cargo
+      body.restaurante        || '',    // F: Restaurante
+      body.cumpleanos         || '',    // G: Cumpleaños
+      body.direccion          || '',    // H: Dirección
+      body.numeroTelefono     || '',    // I: Teléfono
+      body.numeroEmergencia   || '',    // J: Teléfono Emergencia
+      body.barrioCafe         || '',    // K: Barrio Café
+      body.df                 || '',    // L: DF
+      body.laContentera       || '',    // M: La Contentera
+      body.foodStop           || '',    // N: Food Stop
+      body.observaciones      || '',    // O: Observaciones
+      body.inss               || '',    // P: INSS
+      body.cuentaBac          || '',    // Q: Cuenta BAC
+      body.diasTrabajados     || '0',   // R: Días Trabajados
+      body.fechaRetiro        || '',    // S: Fecha Retiro
+      body.estadoCivil        || '',    // T: Estado Civil
+      body.barrio             || '',    // U: Barrio
     ];
 
-    await updateEmpleado(rowIndex, fila);
+    await appendEmpleado(fila);
 
-    return NextResponse.json({ success: true, message: 'Empleado actualizado correctamente' });
+    return NextResponse.json({ success: true, message: 'Empleado registrado correctamente' });
 
   } catch (error) {
-    console.error('Error PUT /api/empleados/[id]:', error);
+    console.error('Error POST /api/empleados:', error);
     return NextResponse.json(
-      { error: 'Error al actualizar empleado en Google Sheets' },
+      { error: 'Error al registrar empleado en Google Sheets' },
       { status: 500 }
     );
   }
