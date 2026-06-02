@@ -7,7 +7,6 @@
   --INSS
   --ESTADO
   --ESTADO CIVIL
-  --RESTAURANTE
 /**/
 
 import { Button } from '@/components/ui/button';
@@ -121,10 +120,11 @@ export function FilterBar({
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">Todos</SelectItem>
+              <SelectItem value="AJÍ">AJÍ</SelectItem>
               <SelectItem value="DF">DF</SelectItem>
               <SelectItem value="Barrio Café">Barrio Café</SelectItem>
               <SelectItem value="La Contentera">La Contentera</SelectItem>
-              <SelectItem value="Food Stop">Food Stop</SelectItem>
+              <SelectItem value="Barrio Cafe Central">Barrio Cafe Central</SelectItem>
             </SelectContent>
           </Select>
         </div>

@@ -45,7 +45,7 @@ export function EmployeeTable({ employees, isLoading, onEdit }: EmployeeTablePro
       <Table className="min-w-max">
         <TableHeader>
           <TableRow className="bg-muted">
-            <TableHead className="font-semibold text-foreground">Cédula</TableHead>
+            <TableHead className="font-semibold text-foreground">Número de Cédula</TableHead>
             <TableHead className="font-semibold text-foreground">Nombres y Apellidos</TableHead>
             <TableHead className="font-semibold text-foreground">Restaurante</TableHead>
             <TableHead className="font-semibold text-foreground">Cargo</TableHead>
