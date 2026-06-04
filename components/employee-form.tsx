@@ -21,6 +21,8 @@ export function EmployeeForm({ onSubmit, onReset }: EmployeeFormProps) {
     fechaEgreso: '',
     cargo: '',
     restaurante: 'DF',
+    salario: 0,
+    beneficios: '',
     cumpleanos: '',
     direccion: '',
     numeroTelefono: '',
@@ -52,6 +54,8 @@ export function EmployeeForm({ onSubmit, onReset }: EmployeeFormProps) {
       fechaEgreso: formData.fechaEgreso || '',
       cargo: formData.cargo || '',
       restaurante: (formData.restaurante as any) || 'DF',
+      salario: formData.salario || 0,
+      beneficios: formData.beneficios || '',
       cumpleanos: formData.cumpleanos || '',
       direccion: formData.direccion || '',
       numeroTelefono: formData.numeroTelefono || '',
@@ -77,6 +81,8 @@ export function EmployeeForm({ onSubmit, onReset }: EmployeeFormProps) {
       fechaEgreso: '',
       cargo: '',
       restaurante: 'DF',
+      salario: 0,
+      beneficios: '',
       cumpleanos: '',
       direccion: '',
       numeroTelefono: '',
@@ -153,6 +159,29 @@ export function EmployeeForm({ onSubmit, onReset }: EmployeeFormProps) {
               </SelectContent>
             </Select>
           </div>
+
+          {/* Salario */}
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-black">Salarío</label>
+            <Input
+              type="number"
+              value={formData.salario || 0}
+              onChange={(e) => handleChange('diasTrabajados', parseInt(e.target.value) || 0)}
+              className="bg-[#80CED7]/10 border-[#80CED7]/30 text-black"
+            />
+          </div>
+
+          {/* Beneficios */}
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-black">Beneficios</label>
+            <Input
+              placeholder=""
+              value={formData.beneficios || ''}
+              onChange={(e) => handleChange('beneficios', e.target.value)}
+              className="bg-[#80CED7]/10 border-[#80CED7]/30 text-black"
+            />
+          </div>
+
 
           {/* Fecha Ingreso */}
           <div className="space-y-2">

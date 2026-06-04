@@ -1,6 +1,6 @@
 import { google } from 'googleapis';
 
-const SHEET_NAME = 'Empleados'; // Nombre exacto de la pestaña en tu Google Sheet
+const SHEET_NAME = 'INDETERMINADO'; // Nombre exacto de la pestaña en tu Google Sheet
 
 function getAuth() {
   const key = process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, '\n');
@@ -23,7 +23,7 @@ export async function getEmpleados(): Promise<string[][]> {
 
   const response = await sheets.spreadsheets.values.get({
     spreadsheetId: process.env.GOOGLE_SHEET_ID,
-    range: `${SHEET_NAME}!A2:U`, // A hasta U, desde fila 2
+    range: `${SHEET_NAME}!A2:W`, // A hasta U, desde fila 2
   });
 
   return (response.data.values as string[][]) || [];
@@ -36,7 +36,7 @@ export async function appendEmpleado(fila: string[]): Promise<void> {
 
   await sheets.spreadsheets.values.append({
     spreadsheetId: process.env.GOOGLE_SHEET_ID,
-    range: `${SHEET_NAME}!A:U`,
+    range: `${SHEET_NAME}!A:W`,
     valueInputOption: 'USER_ENTERED',
     requestBody: { values: [fila] },
   });
@@ -53,7 +53,7 @@ export async function updateEmpleado(rowIndex: number, fila: string[]): Promise<
 
   await sheets.spreadsheets.values.update({
     spreadsheetId: process.env.GOOGLE_SHEET_ID,
-    range: `${SHEET_NAME}!A${sheetRow}:U${sheetRow}`,
+    range: `${SHEET_NAME}!A${sheetRow}:W${sheetRow}`,
     valueInputOption: 'USER_ENTERED',
     requestBody: { values: [fila] },
   });

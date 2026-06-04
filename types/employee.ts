@@ -6,6 +6,8 @@ export interface Employee {
   fechaEgreso: string;
   cargo: string;
   restaurante: 'DF' | 'Barrio Café' | 'La Contentera' | 'Food Stop';
+  salario: number;
+  beneficios: string;
   cumpleanos: string;
   direccion: string;
   numeroTelefono: string;

@@ -50,7 +50,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 export function EmployeeFormModal({ isOpen, onClose, onSubmit }: EmployeeFormModalProps) {
   const [formData, setFormData] = useState<Partial<Employee>>({
     nombreCompleto: '', cedula: '', fechaIngreso: '', fechaEgreso: '',
-    cargo: '', restaurante: 'DF', cumpleanos: '', direccion: '',
+    cargo: '', restaurante: 'DF', salario: 0, beneficios: '', cumpleanos: '', direccion: '',
     numeroTelefono: '', numeroEmergencia: '', inss: '', cuentaBac: '',
     diasTrabajados: 0, fechaRetiro: '', observaciones: '', estadoCivil: 'soltero', estado: 'activo',
   });
@@ -69,6 +69,7 @@ export function EmployeeFormModal({ isOpen, onClose, onSubmit }: EmployeeFormMod
       nombreCompleto: formData.nombreCompleto!, cedula: formData.cedula!,
       fechaIngreso: formData.fechaIngreso || '', fechaEgreso: formData.fechaEgreso || '',
       cargo: formData.cargo || '', restaurante: (formData.restaurante as any) || 'DF',
+      salario: formData.salario || 0, beneficios: formData.beneficios || '',
       cumpleanos: formData.cumpleanos || '', direccion: formData.direccion || '',
       numeroTelefono: formData.numeroTelefono || '', numeroEmergencia: formData.numeroEmergencia || '',
       barrio: '', inss: formData.inss || '', cuentaBac: formData.cuentaBac || '',
@@ -83,7 +84,7 @@ export function EmployeeFormModal({ isOpen, onClose, onSubmit }: EmployeeFormMod
 
   const reset = () => setFormData({
     nombreCompleto: '', cedula: '', fechaIngreso: '', fechaEgreso: '',
-    cargo: '', restaurante: 'DF', cumpleanos: '', direccion: '',
+    cargo: '', restaurante: 'DF', salario: 0, beneficios: '', cumpleanos: '', direccion: '',
     numeroTelefono: '', numeroEmergencia: '', inss: '', cuentaBac: '',
     diasTrabajados: 0, fechaRetiro: '', observaciones: '', estadoCivil: 'soltero', estado: 'activo',
   });
@@ -172,7 +173,28 @@ export function EmployeeFormModal({ isOpen, onClose, onSubmit }: EmployeeFormMod
                     </Select>
                   </Field>
                 </div>
-                   <div>
+                <div>
+                  <Field label="Salario">
+                    <input
+                      type="number"
+                      min={0}
+                      value={formData.salario || ''}
+                      onChange={e => set('salario', e.target.value)}
+                      className={inp}
+                    />
+                  </Field>
+                </div>
+                <div>
+                  <Field label="Beneficios">
+                    <input
+                      placeholder="Bonos, alimentación, transporte..."
+                      value={formData.beneficios || ''}
+                      onChange={e => set('beneficios', e.target.value)}
+                      className={inp}
+                    />
+                  </Field>
+                </div>
+                <div>
                 <Field label="Estado">
                   <Select value={formData.estado || 'activo'} onValueChange={v => set('estado', v)}>
                     <SelectTrigger className={sel}><SelectValue /></SelectTrigger>

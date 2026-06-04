@@ -8,40 +8,67 @@ export async function GET() {
 
     const empleados = filas
       .filter((fila) => fila[0]) // ignorar filas completamente vacías
-      .map((fila, index) => ({
-        id: String(index),                  // el índice = número de fila (para edición)
-        nombreCompleto:     fila[0]  || '',
-        cedula:             fila[1]  || '',
-        fechaIngreso:       fila[2]  || '',
-        fechaEgreso:        fila[3]  || '',
-        cargo:              fila[4]  || '',
-        restaurante:        fila[5]  || '',
-        cumpleanos:         fila[6]  || '',
-        direccion:          fila[7]  || '',
-        numeroTelefono:     fila[8]  || '',
-        numeroEmergencia:   fila[9]  || '',
-        barrioCafe:         fila[10] || '',
-        df:                 fila[11] || '',
-        laContentera:       fila[12] || '',
-        foodStop:           fila[13] || '',
-        observaciones:      fila[14] || '',
-        inss:               fila[15] || '',
-        cuentaBac:          fila[16] || '',
-        diasTrabajados:     fila[17] ? Number(fila[17]) : 0,
-        fechaRetiro:        fila[18] || '',
-        estadoCivil:        fila[19] || 'soltero',
-        barrio:             fila[20] || '',
-        // Estado: si tiene fecha de retiro → inactivo, si no → activo
-        estado:             (fila[18] ? 'inactivo' : 'activo') as 'activo' | 'inactivo',
-      }));
+      .map((fila, index) => {
+        const fechaRetiro = (fila[20] || '').toString().trim();
+
+        // Columna W = Estado
+        const estadoGuardado = (fila[22] || 'activo')
+          .toString()
+          .trim()
+          .toLowerCase();
+
+        return {
+          id: String(index), // índice de fila para edición
+
+          nombreCompleto: fila[0] || '',
+          cedula: fila[1] || '',
+          fechaIngreso: fila[2] || '',
+          fechaEgreso: fila[3] || '',
+          cargo: fila[4] || '',
+          restaurante: fila[5] || '',
+          salario: fila[6] || '',
+          beneficios: fila[7] || '',
+          cumpleanos: fila[8] || '',
+          direccion: fila[9] || '',
+          numeroTelefono: fila[10] || '',
+          numeroEmergencia: fila[11] || '',
+          barrioCafe: fila[12] || '',
+          df: fila[13] || '',
+          laContentera: fila[14] || '',
+          foodStop: fila[15] || '',
+          observaciones: fila[16] || '',
+          inss: fila[17] || '',
+          cuentaBac: fila[18] || '',
+          diasTrabajados: fila[19]
+            ? Number(fila[19])
+            : 0,
+
+          fechaRetiro,
+          estadoCivil: fila[21] || 'soltero',
+
+          // Prioridad:
+          // 1. Si tiene fecha de retiro => inactivo
+          // 2. Si no tiene fecha de retiro => usar valor guardado en la hoja
+          estado: fechaRetiro
+            ? 'inactivo'
+            : estadoGuardado === 'inactivo'
+              ? 'inactivo'
+              : 'activo',
+        };
+      });
 
     return NextResponse.json({ empleados });
 
   } catch (error) {
     console.error('Error GET /api/empleados:', error);
+
     return NextResponse.json(
-      { error: 'Error al obtener empleados desde Google Sheets' },
-      { status: 500 }
+      {
+        error: 'Error al obtener empleados desde Google Sheets',
+      },
+      {
+        status: 500,
+      }
     );
   }
 }
@@ -67,21 +94,22 @@ export async function POST(request: Request) {
       body.fechaEgreso        || '',    // D: Fecha Egreso
       body.cargo              || '',    // E: Cargo
       body.restaurante        || '',    // F: Restaurante
-      body.cumpleanos         || '',    // G: Cumpleaños
-      body.direccion          || '',    // H: Dirección
-      body.numeroTelefono     || '',    // I: Teléfono
-      body.numeroEmergencia   || '',    // J: Teléfono Emergencia
-      body.barrioCafe         || '',    // K: Barrio Café
-      body.df                 || '',    // L: DF
-      body.laContentera       || '',    // M: La Contentera
-      body.foodStop           || '',    // N: Food Stop
-      body.observaciones      || '',    // O: Observaciones
-      body.inss               || '',    // P: INSS
-      body.cuentaBac          || '',    // Q: Cuenta BAC
-      body.diasTrabajados     || '0',   // R: Días Trabajados
-      body.fechaRetiro        || '',    // S: Fecha Retiro
-      body.estadoCivil        || '',    // T: Estado Civil
-      body.barrio             || '',    // U: Barrio
+      body.salario            || '',    // G: Salario
+      body.beneficios         || '',    // H: Beneficios
+      body.cumpleanos         || '',    // I: Cumpleaños
+      body.direccion          || '',    // J: Dirección
+      body.numeroTelefono     || '',    // K: Teléfono
+      body.numeroEmergencia   || '',    // L: Teléfono Emergencia
+      body.barrioCafe         || '',    // M: Barrio Café
+      body.df                 || '',    // N: DF
+      body.laContentera       || '',    // Ñ: La Contentera
+      body.foodStop           || '',    // O: Food Stop
+      body.observaciones      || '',    // P: Observaciones
+      body.inss               || '',    // Q: INSS
+      body.cuentaBac          || '',    // R: Cuenta BAC
+      body.diasTrabajados     || '0',   // S: Días Trabajados
+      body.fechaRetiro        || '',    // T: Fecha Retiro
+      body.estadoCivil        || '',    // U: Estado Civil
     ];
 
     await appendEmpleado(fila);

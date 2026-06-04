@@ -33,6 +33,8 @@ export async function PUT(
       body.fechaEgreso      || '',
       body.cargo            || '',
       body.restaurante      || '',
+      body.salario          || '',
+      body.beneficios       || '',
       body.cumpleanos       || '',
       body.direccion        || '',
       body.numeroTelefono   || '',
@@ -47,7 +49,6 @@ export async function PUT(
       body.diasTrabajados   || '0',
       body.fechaRetiro      || '',
       body.estadoCivil      || '',
-      body.barrio           || '',
     ];
 
     await updateEmpleado(rowIndex, fila);

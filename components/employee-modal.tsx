@@ -53,6 +53,8 @@ const EMPTY_EMPLOYEE: Employee = {
   fechaEgreso: '',
   cargo: '',
   restaurante: 'DF',
+  salario: 0,
+  beneficios: '', 
   cumpleanos: '',
   direccion: '',
   numeroTelefono: '',
