@@ -110,6 +110,7 @@ export async function POST(request: Request) {
       body.diasTrabajados     || '0',   // S: Días Trabajados
       body.fechaRetiro        || '',    // T: Fecha Retiro
       body.estadoCivil        || '',    // U: Estado Civil
+      body.estado             || 'activo', // V: Estado
     ];
 
     await appendEmpleado(fila);
