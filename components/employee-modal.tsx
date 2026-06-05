@@ -84,6 +84,22 @@ export function EmployeeModal({
     }
   }, [employee, isOpen]);
 
+  useEffect(() => {
+  if (employee) {
+    setFormData({
+      ...employee,
+      estadoCivil: employee.estadoCivil || 'soltero',  
+      estado: employee.estado || 'activo',              
+      restaurante: employee.restaurante || 'DF',
+      // Normalizar todas las fechas
+      cumpleanos:   toInputDate(employee.cumpleanos),
+      fechaIngreso: toInputDate(employee.fechaIngreso),
+      fechaEgreso:  toInputDate(employee.fechaEgreso),
+      fechaRetiro:  toInputDate(employee.fechaRetiro),        
+    });
+  }
+}, [employee, isOpen]);
+   
   const set = (field: keyof Employee, value: any) =>
     setFormData(prev => ({ ...prev, [field]: value }));
 
@@ -95,6 +111,33 @@ export function EmployeeModal({
     onSave(formData);
     onClose();
   };
+
+  function toInputDate(value: string | undefined): string {
+    if (!value) return '';
+    
+    // Ya está en formato correcto YYYY-MM-DD
+    if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+    
+    // Formato DD/MM/YYYY (más común en Sheets en español)
+    if (/^\d{2}\/\d{2}\/\d{4}$/.test(value)) {
+      const [day, month, year] = value.split('/');
+      return `${year}-${month}-${day}`;
+    }
+
+    // Formato MM/DD/YYYY
+    if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(value)) {
+      const [month, day, year] = value.split('/');
+      return `${year}-${month.padStart(2,'0')}-${day.padStart(2,'0')}`;
+    }
+
+    // Formato DD-MM-YYYY con guiones
+    if (/^\d{2}-\d{2}-\d{4}$/.test(value)) {
+      const [day, month, year] = value.split('-');
+      return `${year}-${month}-${day}`;
+    }
+
+    return '';
+  }
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
@@ -129,7 +172,7 @@ export function EmployeeModal({
                   <input
                     placeholder="Juan Manuel García López"
                     value={formData.nombreCompleto}
-                    onChange={e => set('nombreCompleto', e.target.value)}
+                    onChange={e => set('nombreCompleto', e.target.value.toUpperCase)}
                     className={inp}
                   />
                 </Field>
@@ -137,10 +180,21 @@ export function EmployeeModal({
               <div className="md:col-span-2">
                 <Field label="Cédula *">
                   <input
-                    placeholder="001-120597-0003A"
+                    placeholder="001-180901-1023U"
                     value={formData.cedula}
-                    onChange={e => set('cedula', e.target.value)}
+                    onChange={e => {
+                      // Elimina todo excepto alfanuméricos
+                      const raw = e.target.value.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+                      let formatted = raw;
+                      if (raw.length > 3 && raw.length <= 9) {
+                        formatted = `${raw.slice(0, 3)}-${raw.slice(3)}`;
+                      } else if (raw.length > 9) {
+                        formatted = `${raw.slice(0, 3)}-${raw.slice(3, 9)}-${raw.slice(9, 14)}`;
+                      }
+                      set('cedula', formatted);
+                    }}
                     className={inp}
+                    maxLength={16}
                   />
                 </Field>
               </div>
@@ -174,6 +228,8 @@ export function EmployeeModal({
           <div className="bg-white rounded-2xl p-7 border border-gray-100 shadow-sm">
             <SectionTitle title="Información Laboral" />
             <div className="grid grid-cols-2 gap-x-8 gap-y-6">
+
+              {/* Fila 1: Cargo - Restaurante */}
               <div>
                 <Field label="Cargo">
                   <input
@@ -198,6 +254,31 @@ export function EmployeeModal({
                   </Select>
                 </Field>
               </div>
+
+              {/* Fila 2: Salario - Beneficios */}
+              <div>
+                <Field label="Salario">
+                  <input
+                    type="number"
+                    min={0}
+                    value={formData.salario || ''}
+                    onChange={e => set('salario', e.target.value)}
+                    className={inp}
+                  />
+                </Field>
+              </div>
+              <div>
+                <Field label="Beneficios">
+                  <input
+                    placeholder="Bonos, alimentación, transporte..."
+                    value={formData.beneficios || ''}
+                    onChange={e => set('beneficios', e.target.value)}
+                    className={inp}
+                  />
+                </Field>
+              </div>
+
+              {/* Fila 3: Estado - Días Trabajados */}
               <div>
                 <Field label="Estado">
                   <Select value={formData.estado || 'activo'} onValueChange={v => set('estado', v)}>
@@ -220,9 +301,9 @@ export function EmployeeModal({
                   />
                 </Field>
               </div>
+
             </div>
           </div>
-
           {/* ── SECCIÓN 3: Contacto y Datos Financieros ── */}
           <div className="bg-white rounded-2xl p-7 border border-gray-100 shadow-sm">
             <SectionTitle title="Contacto y Datos Financieros" />

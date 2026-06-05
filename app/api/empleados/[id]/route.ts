@@ -2,12 +2,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import { updateEmpleado } from '@/lib/googleSheets';
 
 export async function PUT(
-  request: NextRequest,                          // ← NextRequest en vez de Request
-  context: { params: Promise<unknown> }          // ← Promise<unknown> como lo espera Next.js 15
+  request: NextRequest,
+  context: { params: Promise<{ id: string }> }   // tipado correcto
 ) {
   try {
-    const { id } = context.params as unknown as { id: string }; // ← cast aquí
-    // NO necesita await porque lo casteamos directamente
+    const { id } = await context.params;          // await obligatorio en Next.js 15
     const rowIndex = parseInt(id, 10);
 
     if (isNaN(rowIndex) || rowIndex < 0) {
@@ -49,6 +48,7 @@ export async function PUT(
       body.diasTrabajados   || '0',
       body.fechaRetiro      || '',
       body.estadoCivil      || '',
+      body.estado           || 'activo',          //  campo estado agregado
     ];
 
     await updateEmpleado(rowIndex, fila);

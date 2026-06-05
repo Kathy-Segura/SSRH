@@ -118,15 +118,37 @@ export function EmployeeFormModal({ isOpen, onClose, onSubmit }: EmployeeFormMod
             <SectionTitle title="Datos Personales" />
             <div className="grid grid-cols-1 md:grid-cols-3 gap-x-8 gap-y-6">
               <div className="md:col-span-3">
-                <Field label="Nombre Completo *">
-                  <input placeholder="Juan Manuel García López" value={formData.nombreCompleto || ''} onChange={e => set('nombreCompleto', e.target.value)} className={inp} required />
-                </Field>
-              </div>
-              <div className="md:col-span-2">
-                <Field label="Cédula *">
-                  <input placeholder="001-120597-0003A" value={formData.cedula || ''} onChange={e => set('cedula', e.target.value)} className={inp} required />
-                </Field>
-              </div>
+              <Field label="Nombre Completo *">
+                <input
+                  placeholder="Juan Manuel García López"
+                  value={formData.nombreCompleto || ''}
+                  onChange={e => set('nombreCompleto', e.target.value.toUpperCase())}
+                  className={inp}
+                  required
+                />
+              </Field>
+            </div>
+            <div className="md:col-span-2">
+              <Field label="Cédula *">
+                <input
+                  placeholder="001-120597-0003A"
+                  value={formData.cedula || ''}
+                  onChange={e => {
+                    const raw = e.target.value.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+                    let formatted = raw;
+                    if (raw.length > 3 && raw.length <= 9) {
+                      formatted = `${raw.slice(0, 3)}-${raw.slice(3)}`;
+                    } else if (raw.length > 9) {
+                      formatted = `${raw.slice(0, 3)}-${raw.slice(3, 9)}-${raw.slice(9, 14)}`;
+                    }
+                    set('cedula', formatted);
+                  }}
+                  className={inp}
+                  maxLength={16}
+                  required
+                />
+              </Field>
+            </div>
               <div>
                 <Field label="Estado Civil">
                   <Select value={formData.estadoCivil || 'soltero'} onValueChange={v => set('estadoCivil', v)}>
@@ -164,11 +186,11 @@ export function EmployeeFormModal({ isOpen, onClose, onSubmit }: EmployeeFormMod
                     <Select value={formData.restaurante || 'DF'} onValueChange={v => set('restaurante', v)}>
                       <SelectTrigger className={sel}><SelectValue /></SelectTrigger>
                       <SelectContent>
+                        <SelectItem value="DF">DF</SelectItem>
+                        <SelectItem value="AJÍ">AJÍ</SelectItem>
                         <SelectItem value="BARRIO CAFÉ">BARRIO CAFÉ</SelectItem>
                         <SelectItem value="BARRIO CAFÉ (CENTRAL)">BARRIO CAFÉ (CENTRAL)</SelectItem>
                         <SelectItem value="CONTENTERA">LA CONTENTERA</SelectItem>
-                        <SelectItem value="DF">DF</SelectItem>
-                        <SelectItem value="AJÍ">AJÍ</SelectItem>
                       </SelectContent>
                     </Select>
                   </Field>
