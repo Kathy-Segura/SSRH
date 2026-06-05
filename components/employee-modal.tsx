@@ -79,12 +79,6 @@ export function EmployeeModal({
   const [formData, setFormData] = useState<Employee>(employee || EMPTY_EMPLOYEE);
 
   useEffect(() => {
-    if (employee) {
-      setFormData(employee);
-    }
-  }, [employee, isOpen]);
-
-  useEffect(() => {
   if (employee) {
     setFormData({
       ...employee,
@@ -97,6 +91,8 @@ export function EmployeeModal({
       fechaEgreso:  toInputDate(employee.fechaEgreso),
       fechaRetiro:  toInputDate(employee.fechaRetiro),        
     });
+  } else{
+    setFormData(EMPTY_EMPLOYEE); // limpia el form al abrir en modo creación
   }
 }, [employee, isOpen]);
    
@@ -113,31 +109,22 @@ export function EmployeeModal({
   };
 
   function toInputDate(value: string | undefined): string {
-    if (!value) return '';
-    
-    // Ya está en formato correcto YYYY-MM-DD
-    if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
-    
-    // Formato DD/MM/YYYY (más común en Sheets en español)
-    if (/^\d{2}\/\d{2}\/\d{4}$/.test(value)) {
-      const [day, month, year] = value.split('/');
-      return `${year}-${month}-${day}`;
-    }
-
-    // Formato MM/DD/YYYY
-    if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(value)) {
-      const [month, day, year] = value.split('/');
-      return `${year}-${month.padStart(2,'0')}-${day.padStart(2,'0')}`;
-    }
-
-    // Formato DD-MM-YYYY con guiones
-    if (/^\d{2}-\d{2}-\d{4}$/.test(value)) {
-      const [day, month, year] = value.split('-');
-      return `${year}-${month}-${day}`;
-    }
-
-    return '';
+  if (!value) return '';
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+  if (/^\d{2}\/\d{2}\/\d{4}$/.test(value)) {
+    const [day, month, year] = value.split('/');
+    return `${year}-${month}-${day}`;
   }
+  if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(value)) {
+    const [month, day, year] = value.split('/');
+    return `${year}-${month.padStart(2,'0')}-${day.padStart(2,'0')}`;
+  }
+  if (/^\d{2}-\d{2}-\d{4}$/.test(value)) {
+    const [day, month, year] = value.split('-');
+    return `${year}-${month}-${day}`;
+  }
+  return '';
+}
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
