@@ -14,6 +14,12 @@ import { Employee } from '@/types/employee';
 import { FilterState } from '@/types/filter';
 import { Printer, ChevronUp, Plus, RefreshCw, AlertCircle } from 'lucide-react';
 
+// funcion contadora de indices en el campo cedula
+const getMesDesdeCedula = (cedula: string): string => {
+  const tieneGuion = cedula.includes('-');
+  return tieneGuion ? cedula.substring(6, 8) : cedula.substring(5, 7);
+};
+
 export default function Home() {
   // ─── Estado de datos ───────────────────────────────────────────────────────
   const [employees, setEmployees] = useState<Employee[]>([]);
@@ -29,7 +35,9 @@ export default function Home() {
     estadoCivil: '',
     estado: '',
     restaurante: '',
+    mescumple: '',
   });
+
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
   const [isPrintDialogOpen, setIsPrintDialogOpen] = useState(false);
@@ -64,41 +72,50 @@ export default function Home() {
   }, [fetchEmployees]);
 
   // ─── Filtrar empleados ─────────────────────────────────────────────────────
-  const filteredEmployees = useMemo(() => {
-    return employees.filter((employee) => {
-      const matchNombre = employee.nombreCompleto
-        .toLowerCase()
-        .includes(filters.nombre.toLowerCase());
-      const matchCedula = employee.cedula
-        .toLowerCase()
-        .includes(filters.cedula.toLowerCase());
-      const matchINSS = employee.inss
-        .toLowerCase()
-        .includes(filters.inss.toLowerCase());
-      const matchEstadoCivil =
-        !filters.estadoCivil ||
-        filters.estadoCivil === 'all' ||
-        employee.estadoCivil === filters.estadoCivil;
-      const matchEstado =
-        !filters.estado ||
-        filters.estado === 'all' ||
-        employee.estado === filters.estado;
-      const matchRestaurante =
-        !filters.restaurante ||
-        filters.restaurante === 'all' ||
-        employee.restaurante === filters.restaurante;
+    const filteredEmployees = useMemo(() => {
+  return employees.filter((employee) => {
+    const matchNombre = employee.nombreCompleto
+      .toLowerCase()
+      .includes(filters.nombre.toLowerCase());
+    const matchCedula = employee.cedula
+      .toLowerCase()
+      .includes(filters.cedula.toLowerCase());
+    const matchINSS = employee.inss
+      .toLowerCase()
+      .includes(filters.inss.toLowerCase());
+    const matchEstadoCivil =
+      !filters.estadoCivil ||
+      filters.estadoCivil === 'all' ||
+      employee.estadoCivil === filters.estadoCivil;
+    const matchEstado =
+      !filters.estado ||
+      filters.estado === 'all' ||
+      employee.estado === filters.estado;
+    const matchRestaurante =
+      !filters.restaurante ||
+      filters.restaurante === 'all' ||
+      employee.restaurante === filters.restaurante;
 
-      return (
-        matchNombre &&
-        matchCedula &&
-        matchINSS &&
-        matchEstadoCivil &&
-        matchEstado &&
-        matchRestaurante
-      );
-    });
-  }, [employees, filters]);
+    // ← Ahora usa la función en lugar del substring fijo
+    const mesCedula = getMesDesdeCedula(employee.cedula);
+    const matchMesCumple =
+      !filters.mescumple ||
+      filters.mescumple === 'all' ||
+      mesCedula === filters.mescumple;
 
+    return (
+      matchNombre &&
+      matchCedula &&
+      matchINSS &&
+      matchEstadoCivil &&
+      matchEstado &&
+      matchRestaurante &&
+      matchMesCumple
+    );
+  });
+}, [employees, filters]);
+
+   
   // ─── Paginación ────────────────────────────────────────────────────────────
   const totalPages = Math.ceil(filteredEmployees.length / itemsPerPage);
   const paginatedEmployees = useMemo(() => {
@@ -169,6 +186,7 @@ export default function Home() {
       estadoCivil: '',
       estado: '',
       restaurante: '',
+      mescumple: '',
     });
     setCurrentPage(1);
   };

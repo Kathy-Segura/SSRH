@@ -5,4 +5,5 @@ export interface FilterState {
   estadoCivil: string;
   estado: string;
   restaurante: string;
+  mescumple: string;
 }

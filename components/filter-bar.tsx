@@ -7,6 +7,8 @@
   --INSS
   --ESTADO
   --ESTADO CIVIL
+  --RESTAURANTE
+  --MES
 /**/
 
 import { Button } from '@/components/ui/button';
@@ -27,6 +29,21 @@ interface FilterBarProps {
   onSearch: () => void;
   onClear: () => void;
 }
+const MESES = [
+  { value: '01', label: 'Enero' },
+  { value: '02', label: 'Febrero' },
+  { value: '03', label: 'Marzo' },
+  { value: '04', label: 'Abril' },
+  { value: '05', label: 'Mayo' },
+  { value: '06', label: 'Junio' },
+  { value: '07', label: 'Julio' },
+  { value: '08', label: 'Agosto' },
+  { value: '09', label: 'Septiembre' },
+  { value: '10', label: 'Octubre' },
+  { value: '11', label: 'Noviembre' },
+  { value: '12', label: 'Diciembre' },
+];
+
 
 export function FilterBar({
   filters,
@@ -57,17 +74,6 @@ export function FilterBar({
           />
         </div>
 
-        {/* Cédula */}
-        <div className="space-y-2">
-          <label className="text-sm font-medium text-foreground">Cédula</label>
-          <Input
-            placeholder="Buscar por cédula..."
-            value={filters.cedula}
-            onChange={(e) => handleInputChange('cedula', e.target.value)}
-            className="bg-background"
-          />
-        </div>
-
         {/* INSS */}
         <div className="space-y-2">
           <label className="text-sm font-medium text-foreground">INSS</label>
@@ -78,6 +84,29 @@ export function FilterBar({
             className="bg-background"
           />
         </div>
+
+
+        {/* Cumpleaños (Mes) */}
+        <div className="space-y-2">
+          <label className="text-sm font-medium text-foreground">Mes (Cumpleaños)</label>
+          <Select
+            value={filters.mescumple}
+            onValueChange={(value) => handleInputChange('mescumple', value)}
+          >
+            <SelectTrigger className="bg-background">
+              <SelectValue placeholder="Seleccionar un mes" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todos</SelectItem>
+              {MESES.map(({ value, label }) => (
+                <SelectItem key={value} value={value}>
+                  {label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+
 
         {/* Estado Civil */}
         <div className="space-y-2">

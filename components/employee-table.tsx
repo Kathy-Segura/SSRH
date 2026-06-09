@@ -51,6 +51,7 @@ export function EmployeeTable({ employees, isLoading, onEdit }: EmployeeTablePro
             <TableHead className="font-semibold text-foreground">Cargo</TableHead>
             <TableHead className="font-semibold text-foreground">Telefono</TableHead>
             <TableHead className="font-semibold text-foreground">Estado Civil</TableHead>
+            <TableHead className="font-semibold text-foreground">Fecha de Ingreso</TableHead>
             <TableHead className="font-semibold text-foreground">Estado</TableHead>
             <TableHead className="font-semibold text-foreground min-w-[50px]">Actualizar</TableHead>
           </TableRow>
@@ -64,6 +65,7 @@ export function EmployeeTable({ employees, isLoading, onEdit }: EmployeeTablePro
               <TableCell>{employee.cargo}</TableCell>
               <TableCell>{employee.numeroTelefono} </TableCell>
               <TableCell>{employee.estadoCivil}</TableCell>
+              <TableCell>{employee.fechaIngreso}</TableCell>
               <TableCell>
                 <span
                   className={`inline-block px-3 py-1 rounded-full text-sm font-medium ${
