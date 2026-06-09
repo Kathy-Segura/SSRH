@@ -151,9 +151,9 @@ export function FilterBar({
               <SelectItem value="all">Todos</SelectItem>
               <SelectItem value="AJÍ">AJÍ</SelectItem>
               <SelectItem value="DF">DF</SelectItem>
-              <SelectItem value="Barrio Café">Barrio Café</SelectItem>
-              <SelectItem value="La Contentera">La Contentera</SelectItem>
-              <SelectItem value="Barrio Cafe Central">Barrio Cafe Central</SelectItem>
+              <SelectItem value="ADMIN">ADMIN</SelectItem>
+              <SelectItem value="BARRIO CAFÉ">BARRIO CAFÉ</SelectItem>
+              <SelectItem value="LA CONTENTERA">LA CONTENTERA</SelectItem>
             </SelectContent>
           </Select>
         </div>

@@ -232,11 +232,11 @@ export function EmployeeModal({
                   <Select value={formData.restaurante || 'DF'} onValueChange={v => set('restaurante', v)}>
                     <SelectTrigger className={sel}><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="BARRIO CAFÉ">BARRIO CAFÉ</SelectItem>
-                      <SelectItem value="BARRIO CAFÉ (CENTRAL)">BARRIO CAFÉ (CENTRAL)</SelectItem>
-                      <SelectItem value="CONTENTERA">LA CONTENTERA</SelectItem>
-                      <SelectItem value="DF">DF</SelectItem>
                       <SelectItem value="AJÍ">AJÍ</SelectItem>
+                      <SelectItem value="DF">DF</SelectItem>
+                      <SelectItem value="ADMIN">ADMIN</SelectItem>
+                      <SelectItem value="BARRIO CAFÉ">BARRIO CAFÉ</SelectItem>
+                      <SelectItem value="LA CONTENTERA">LA CONTENTERA</SelectItem>
                     </SelectContent>
                   </Select>
                 </Field>
