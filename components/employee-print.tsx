@@ -197,7 +197,7 @@ export function EmployeePrintButton({ employee }: EmployeePrintButtonProps) {
       className="p-1 h-auto"
       title="Imprimir ficha del empleado"
     >
-      <Printer className="w-4 h-4 text-accent" />
+      <Printer className="w-4 h-4 text-color:blue-200" />
     </Button>
   );
 }

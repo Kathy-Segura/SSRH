@@ -55,7 +55,6 @@ export function EmployeeTable({ employees, isLoading, onEdit }: EmployeeTablePro
             <TableHead className="font-semibold text-foreground">Fecha de Ingreso</TableHead>
             <TableHead className="font-semibold text-foreground">Estado</TableHead>
             <TableHead className="font-semibold text-foreground min-w-[50px]">Actualizar</TableHead>
-            <TableHead className="font-semibold text-foreground min-w-[50px]">Imprimir</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -80,6 +79,8 @@ export function EmployeeTable({ employees, isLoading, onEdit }: EmployeeTablePro
                 </span>
               </TableCell>
               <TableCell>
+                {/*Boton de Editar*/}
+                <div className="flex items-center gap-1">
                 <Button
                   variant="ghost"
                   size="sm"
@@ -87,13 +88,12 @@ export function EmployeeTable({ employees, isLoading, onEdit }: EmployeeTablePro
                   className="p-1 h-auto"
                   title="Editar empleado"
                 >
-                  <Pencil className="w-4 h-4 text-accent" />
+                  <Pencil className="w-4 h-4 text-color:blue-200" />
                 </Button>
-              </TableCell>
-              <TableCell>
-                <div className="flex items-center gap-1">
-                <EmployeePrintButton employee={employee} />
-              </div>
+
+                {/*Boton de Imprimir*/}
+                  <EmployeePrintButton employee={employee} />
+                </div>
               </TableCell>
             </TableRow>
           ))}
