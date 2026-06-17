@@ -191,6 +191,7 @@ export function EmployeeFormModal({ isOpen, onClose, onSubmit }: EmployeeFormMod
                         <SelectItem value="ADMIN">ADMIN</SelectItem>
                         <SelectItem value="BARRIO CAFÉ">BARRIO CAFÉ</SelectItem>
                         <SelectItem value="LA CONTENTERA">LA CONTENTERA</SelectItem>
+                        <SelectItem value="FRITONI">FRITONI</SelectItem>
                       </SelectContent>
                     </Select>
                   </Field>
@@ -257,7 +258,7 @@ export function EmployeeFormModal({ isOpen, onClose, onSubmit }: EmployeeFormMod
                 </div>
                 <div>
                   <Field label="Cuenta BAC">
-                    <input placeholder="123456789" value={formData.cuentaBac || ''} onChange={e => set('cuentaBac', e.target.value)} className={inp} />
+                    <input placeholder="345678912" value={formData.cuentaBac || ''} onChange={e => set('cuentaBac', e.target.value)} className={inp} />
                   </Field>
                 </div>
               </div>

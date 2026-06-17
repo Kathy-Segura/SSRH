@@ -158,12 +158,15 @@ export function EmployeeModal({
                 <Field label="Nombre Completo *">
                   <input
                     placeholder="Juan Manuel García López"
-                    value={formData.nombreCompleto}
-                    onChange={e => set('nombreCompleto', e.target.value.toUpperCase)}
+                    value={formData.nombreCompleto ?? ''}
+                    onChange={e =>
+                      set('nombreCompleto', e.target.value.toUpperCase())
+                    }
                     className={inp}
+                    required
                   />
-                </Field>
-              </div>
+              </Field>
+          </div>
               <div className="md:col-span-2">
                 <Field label="Cédula *">
                   <input
@@ -237,6 +240,7 @@ export function EmployeeModal({
                       <SelectItem value="ADMIN">ADMIN</SelectItem>
                       <SelectItem value="BARRIO CAFÉ">BARRIO CAFÉ</SelectItem>
                       <SelectItem value="LA CONTENTERA">LA CONTENTERA</SelectItem>
+                      <SelectItem value="FRITONI">FRITONI</SelectItem>
                     </SelectContent>
                   </Select>
                 </Field>

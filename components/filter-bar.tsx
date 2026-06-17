@@ -154,6 +154,7 @@ export function FilterBar({
               <SelectItem value="ADMIN">ADMIN</SelectItem>
               <SelectItem value="BARRIO CAFÉ">BARRIO CAFÉ</SelectItem>
               <SelectItem value="LA CONTENTERA">LA CONTENTERA</SelectItem>
+              <SelectItem value="FRITONI">FRITONI</SelectItem>
             </SelectContent>
           </Select>
         </div>

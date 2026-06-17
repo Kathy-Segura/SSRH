@@ -5,7 +5,7 @@ export interface Employee {
   fechaIngreso: string;
   fechaEgreso: string;
   cargo: string;
-  restaurante:  'AJÍ' |'DF' | 'ADMIN' |'BARRIO CAFÉ' | 'LA CONTENTERA';
+  restaurante:  'AJÍ' |'DF' | 'ADMIN' |'BARRIO CAFÉ' | 'LA CONTENTERA' | 'FRITONI' ;
   salario: number;
   beneficios: string;
   cumpleanos: string;
