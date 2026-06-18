@@ -17,6 +17,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Employee } from '@/types/employee';
 import { Plus, RotateCcw } from 'lucide-react';
 import { useState } from 'react';
+import { calcularDiasTrabajados } from '@/utiles/dateutils';
+import { useEffect } from 'react';
 
 interface EmployeeFormModalProps {
   isOpen: boolean;
@@ -90,6 +92,16 @@ export function EmployeeFormModal({ isOpen, onClose, onSubmit }: EmployeeFormMod
   });
 
   const handleClose = () => { reset(); onClose(); };
+
+  // Dentro del componente, después de definir formData y set:
+  useEffect(() => {
+    const dias = calcularDiasTrabajados(
+      formData.fechaIngreso,
+      formData.fechaEgreso,
+      formData.fechaRetiro
+    );
+    set('diasTrabajados', dias);
+  }, [formData.fechaIngreso, formData.fechaEgreso, formData.fechaRetiro]);
 
   return (
     <Dialog open={isOpen} onOpenChange={handleClose}>
@@ -231,7 +243,12 @@ export function EmployeeFormModal({ isOpen, onClose, onSubmit }: EmployeeFormMod
                 <div>
                   <Field label="Días Trabajados">
                     <input
-                      type="number" min={0} value={formData.diasTrabajados ?? ''} onChange={e => set('diasTrabajados', e.target.value === ''? undefined: Number(e.target.value))}className={inp}/>
+                      type="number"
+                      min={0}
+                      value={formData.diasTrabajados ?? ''}
+                      readOnly
+                      className={`${inp} bg-gray-100 cursor-not-allowed`}
+                    />
                   </Field>
                 </div>
               </div>

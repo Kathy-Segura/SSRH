@@ -30,7 +30,7 @@
   },
   "include": [
     "next-env.d.ts",
-    "**/*.ts",
+    "**/*.ts",  //linea que formateaba los archivos
     "**/*.tsx",
     ".next/types/**/*.ts",
     ".next/dev/types/**/*.ts"

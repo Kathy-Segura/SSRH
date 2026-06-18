@@ -13,6 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Employee } from '@/types/employee';
 import { Save } from 'lucide-react';
 import { useState, useEffect } from 'react';
+import { calcularDiasTrabajados } from '@/utiles/dateutils';
 
 interface EmployeeModalProps {
   isOpen: boolean;
@@ -96,6 +97,16 @@ export function EmployeeModal({
   }
 }, [employee, isOpen]);
    
+  // Nuevo useEffect — solo para calcular días trabajados
+  useEffect(() => {
+    const dias = calcularDiasTrabajados(
+      formData.fechaIngreso,
+      formData.fechaEgreso,
+      formData.fechaRetiro
+    );
+    setFormData(prev => ({ ...prev, diasTrabajados: dias }));
+  }, [formData.fechaIngreso, formData.fechaEgreso, formData.fechaRetiro]);
+
   const set = (field: keyof Employee, value: any) =>
     setFormData(prev => ({ ...prev, [field]: value }));
 
@@ -281,18 +292,17 @@ export function EmployeeModal({
                   </Select>
                 </Field>
               </div>
-              <div>
+             <div>
                 <Field label="Días Trabajados">
                   <input
                     type="number"
                     min={0}
                     value={formData.diasTrabajados ?? ''}
-                    onChange={e => set('diasTrabajados', e.target.value === '' ? undefined : Number(e.target.value))}
-                    className={inp}
+                    readOnly
+                    className={`${inp} bg-gray-100 cursor-not-allowed`}
                   />
                 </Field>
-              </div>
-
+             </div>
             </div>
           </div>
           {/* ── SECCIÓN 3: Contacto y Datos Financieros ── */}
