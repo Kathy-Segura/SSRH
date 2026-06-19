@@ -19,6 +19,35 @@ const estadoCivilMap: Record<string, string> = {
   viudo: 'Viudo/a',
 };
 
+// Función auxiliar — agrégala arriba del componente o en un utils
+const formatearFecha = (fecha: string | undefined): string => {
+  if (!fecha) return '<span class="empty">No registrado</span>';
+
+  // Soporta formatos DD/MM/YYYY y YYYY-MM-DD
+  const partesBarra = fecha.split('/');
+  const partesGuion = fecha.split('-');
+
+  let dia: string, mes: string, anio: string;
+
+  if (partesBarra.length === 3) {
+    // Asume DD/MM/YYYY (formato nicaragüense)
+    [dia, mes, anio] = partesBarra;
+  } else if (partesGuion.length === 3) {
+    // Asume YYYY-MM-DD (formato ISO de inputs tipo date)
+    [anio, mes, dia] = partesGuion;
+  } else {
+    return fecha; // Si no reconoce el formato, devuelve tal cual
+  }
+
+  const meses = [
+    'enero','febrero','marzo','abril','mayo','junio',
+    'julio','agosto','septiembre','octubre','noviembre','diciembre'
+  ];
+
+  const nombreMes = meses[parseInt(mes, 10) - 1] ?? mes;
+  return `${parseInt(dia, 10)} de ${nombreMes} de ${anio}`;
+};
+
 const generatePrintHTML = (employee: Employee): string => `
   <!DOCTYPE html>
   <html lang="es">
@@ -30,40 +59,49 @@ const generatePrintHTML = (employee: Employee): string => `
       body {
         font-family: 'Segoe UI', Arial, sans-serif;
         font-size: 12px;
-        color: #1a1a1a;
+        color: #1a2a3a;
+        background: #f0f7fc;
         padding: 32px 40px;
       }
       .header {
         display: flex;
         justify-content: space-between;
         align-items: flex-start;
-        border-bottom: 2px solid #1a1a1a;
-        padding-bottom: 12px;
-        margin-bottom: 20px;
+        border-bottom: 2px solid #0e7bb5;
+        padding-bottom: 14px;
+        margin-bottom: 22px;
       }
-      .header-left h1 { font-size: 20px; font-weight: 700; letter-spacing: -0.3px; }
-      .header-left p  { font-size: 11px; color: #555; margin-top: 2px; }
-      .header-right   { text-align: right; font-size: 11px; color: #555; }
+      .header-identity { display: flex; align-items: center; gap: 10px; }
+      .avatar {
+        width: 40px; height: 40px; border-radius: 50%;
+        background: #0e7bb5;
+        display: flex; align-items: center; justify-content: center;
+        font-size: 14px; font-weight: 700; color: #fff;
+        flex-shrink: 0;
+      }
+      .header-left h1 { font-size: 20px; font-weight: 700; letter-spacing: -0.3px; color: #0a4d72; }
+      .header-left p  { font-size: 11px; color: #3a7ca5; margin-top: 2px; }
+      .header-right   { text-align: right; font-size: 11px; color: #5a8fa8; }
       .badge {
         display: inline-block;
-        padding: 3px 10px;
+        padding: 4px 14px;
         border-radius: 20px;
         font-size: 11px;
-        font-weight: 600;
-        margin-top: 4px;
+        font-weight: 700;
+        border: 1px solid;
       }
-      .badge-activo   { background: #dcfce7; color: #166534; }
-      .badge-inactivo { background: #fee2e2; color: #991b1b; }
+      .badge-activo   { background: #d0eef9; color: #0a4d72; border-color: #7ec8e3; }
+      .badge-inactivo { background: #fee2e2; color: #991b1b; border-color: #fca5a5; }
       .section        { margin-bottom: 18px; }
       .section-title {
         font-size: 10px;
         font-weight: 700;
         text-transform: uppercase;
         letter-spacing: 0.8px;
-        color: #888;
-        border-bottom: 0.5px solid #ddd;
+        color: #0e7bb5;
+        border-bottom: 1px solid #b3d9ee;
         padding-bottom: 4px;
-        margin-bottom: 10px;
+        margin-bottom: 12px;
       }
       .grid   { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px 16px; }
       .grid-2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px 16px; }
@@ -73,18 +111,19 @@ const generatePrintHTML = (employee: Employee): string => `
         font-weight: 700;
         text-transform: uppercase;
         letter-spacing: 0.6px;
-        color: #999;
+        color: #5a8fa8;
         margin-bottom: 2px;
       }
-      .field span       { font-size: 12px; color: #1a1a1a; }
+      .field span       { font-size: 12px; color: #1a2a3a; }
       .field span.empty { color: #bbb; font-style: italic; }
       .obs-box {
-        border: 0.5px solid #ddd;
-        border-radius: 4px;
-        padding: 8px 10px;
-        min-height: 48px;
+        border: 1px solid #b3d9ee;
+        border-radius: 6px;
+        padding: 10px 12px;
+        min-height: 52px;
         font-size: 12px;
-        line-height: 1.5;
+        line-height: 1.6;
+        background: #fff;
       }
       .footer {
         margin-top: 28px;
@@ -93,14 +132,14 @@ const generatePrintHTML = (employee: Employee): string => `
         gap: 0 24px;
       }
       .firma-line {
-        border-top: 0.5px solid #aaa;
-        padding-top: 4px;
+        border-top: 1px solid #7ec8e3;
+        padding-top: 5px;
         font-size: 10px;
-        color: #888;
+        color: #5a8fa8;
         text-align: center;
       }
       @media print {
-        body { padding: 20px 28px; }
+        body { background: #fff; padding: 20px 28px; }
         @page { size: A4; margin: 1cm; }
       }
     </style>
@@ -108,24 +147,28 @@ const generatePrintHTML = (employee: Employee): string => `
   <body>
 
     <div class="header">
-      <div class="header-left">
-        <h1>${employee.nombreCompleto}</h1>
-        <p>${employee.cargo} &nbsp;·&nbsp; ${employee.restaurante}</p>
+      <div class="header-identity">
+        <div class="avatar">${employee.nombreCompleto.split(' ').map((n: string) => n[0]).slice(0,2).join('')}</div>
+        <div class="header-left">
+          <h1>${employee.nombreCompleto}</h1>
+          <p>${employee.cargo} &nbsp;·&nbsp; ${employee.restaurante}</p>
+        </div>
       </div>
       <div class="header-right">
-        <div>Cédula: <strong>${employee.cedula}</strong></div>
-        <div>INSS: <strong>${employee.inss || '—'}</strong></div>
         <span class="badge badge-${employee.estado}">
-          ${employee.estado === 'activo' ? 'Activo' : 'Inactivo'}
+          ● ${employee.estado === 'activo' ? 'Activo' : 'Inactivo'}
         </span>
+        <p style="margin-top:6px;">Ficha generada: ${new Date().toLocaleDateString('es-NI')}</p>
       </div>
     </div>
-
-    <div class="section">
-      <div class="section-title">Información Personal</div>
+  
+  <div class="section">
+    <div class="section-title">Información Personal</div>
       <div class="grid">
+        <div class="field"><label>Número de cedula</label>
+         <span>${employee.cedula}</div>
         <div class="field"><label>Fecha de Nacimiento</label>
-          <span>${employee.cumpleanos || '<span class="empty">No registrado</span>'}</span></div>
+          <span>${formatearFecha(employee.cumpleanos) ||'<span class="empty">No registrado</span>'}</span></div>
         <div class="field"><label>Estado Civil</label>
           <span>${estadoCivilMap[employee.estadoCivil] ?? employee.estadoCivil}</span></div>
         <div class="field"><label>Teléfono</label>
@@ -157,12 +200,12 @@ const generatePrintHTML = (employee: Employee): string => `
 
     <div class="section">
       <div class="section-title">Información Financiera</div>
-      <div class="grid-2">
+      <div class="grid">
         <div class="field"><label>Cuenta BAC</label>
           <span>${employee.cuentaBac || '<span class="empty">No registrado</span>'}</span></div>
         <div class="field"><label>INSS</label>
           <span>${employee.inss || '<span class="empty">No registrado</span>'}</span></div>
-      </div>
+       </div>
     </div>
 
     <div class="section">
