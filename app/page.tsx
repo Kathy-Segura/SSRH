@@ -1,5 +1,9 @@
 'use client';
 
+/** 
+ * Pagina Principal donde se hace el llamado de todos los componenentes
+ * Tambien metodos de carga de datos y renderizado de todo los componentes.
+*/
 import { useState, useMemo, useEffect, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { TopNavbar } from '@/components/top-navbar';
@@ -13,6 +17,8 @@ import { EmployeeModal } from '@/components/employee-modal';
 import { Employee } from '@/types/employee';
 import { FilterState } from '@/types/filter';
 import { Printer, ChevronUp, Plus, RefreshCw, AlertCircle } from 'lucide-react';
+import { FileText } from 'lucide-react';
+import { PreviewButton} from '@/components/preview-button-pdf';
 
 // funcion contadora de indices en el campo cedula
 const getMesDesdeCedula = (cedula: string): string => {
@@ -306,6 +312,9 @@ export default function Home() {
                   <Printer className="w-4 h-4" />
                   Imprimir Reporte
                 </Button>
+
+                {/* Boton para imprimir el pdf guia*/}
+                <PreviewButton />
               </div>
 
               {/* Tabla de empleados */}

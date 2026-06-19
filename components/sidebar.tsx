@@ -1,6 +1,6 @@
 'use client';
 /**
-  COMPONENTE ENCARGADO DEL HEADER DE LA PAGINA Y DISÑO RESPONSIVE.
+  COMPONENTE ENCARGADO DEL HEADER DE LA PAGINA Y DISEÑO RESPONSIVE.
 /**/
 import { Users, Menu, X } from 'lucide-react';
 import { useState } from 'react';
