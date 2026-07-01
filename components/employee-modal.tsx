@@ -252,6 +252,7 @@ export function EmployeeModal({
                       <SelectItem value="BARRIO CAFÉ">BARRIO CAFÉ</SelectItem>
                       <SelectItem value="LA CONTENTERA">LA CONTENTERA</SelectItem>
                       <SelectItem value="FRITONI">FRITONI</SelectItem>
+                      <SelectItem value="CANTABAR">CANTABAR</SelectItem>
                     </SelectContent>
                   </Select>
                 </Field>
