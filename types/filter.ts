@@ -6,4 +6,5 @@ export interface FilterState {
   estado: string;
   restaurante: string;
   mescumple: string;
+  mesIngreso: string; // 'all' o '01'-'12'
 }

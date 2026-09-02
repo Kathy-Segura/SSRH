@@ -26,6 +26,23 @@ const getMesDesdeCedula = (cedula: string): string => {
   return tieneGuion ? cedula.substring(6, 8) : cedula.substring(5, 7);
 };
 
+/**
+ * Extrae el mes de una fecha en formato d/m/aaaa o dd/mm/aaaa
+ * (también soporta "-" como separador).
+ * A diferencia de getMesDesdeCedula, aquí NO se puede usar substring
+ * de índice fijo porque el día puede venir sin cero a la izquierda,
+ * lo que desfasa las posiciones.
+ */
+function getMesDesdeFecha(fecha: string): string {
+  if (!fecha) return '';
+
+  const partes = fecha.split(/[/-]/); // ["6", "10", "2025"]
+  if (partes.length < 2) return '';
+
+  const mes = partes[1].trim();
+  return mes.padStart(2, '0'); // "10" (ya normalizado a 2 dígitos)
+}
+
 export default function Home() {
   // ─── Estado de datos ───────────────────────────────────────────────────────
   const [employees, setEmployees] = useState<Employee[]>([]);
@@ -42,6 +59,7 @@ export default function Home() {
     estado: '',
     restaurante: '',
     mescumple: '',
+    mesIngreso: ''
   });
 
   const [currentPage, setCurrentPage] = useState(1);
@@ -108,6 +126,13 @@ export default function Home() {
       !filters.mescumple ||
       filters.mescumple === 'all' ||
       mesCedula === filters.mescumple;
+    
+    // Mes de ingreso (desde "Fecha de Ingreso", formato dd/mm/aaaa) -- NUEVO
+    const mesIngreso = getMesDesdeFecha(employee.fechaIngreso);
+    const matchMesIngreso =
+      !filters.mesIngreso ||
+      filters.mesIngreso === 'all' ||
+      mesIngreso === filters.mesIngreso;
 
     return (
       matchNombre &&
@@ -116,12 +141,12 @@ export default function Home() {
       matchEstadoCivil &&
       matchEstado &&
       matchRestaurante &&
-      matchMesCumple
+      matchMesCumple &&
+      matchMesIngreso
     );
   });
 }, [employees, filters]);
 
-   
   // ─── Paginación ────────────────────────────────────────────────────────────
   const totalPages = Math.ceil(filteredEmployees.length / itemsPerPage);
   const paginatedEmployees = useMemo(() => {
@@ -193,6 +218,7 @@ export default function Home() {
       estado: '',
       restaurante: '',
       mescumple: '',
+      mesIngreso: ''
     });
     setCurrentPage(1);
   };

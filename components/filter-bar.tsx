@@ -8,9 +8,11 @@
   --ESTADO
   --ESTADO CIVIL
   --RESTAURANTE
-  --MES
+  --MES(CUMPLEAÑOS)
+  --MES(INGRESO)
 /**/
 
+import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -21,14 +23,19 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { FilterState } from '@/types/filter';
-import { Search, X } from 'lucide-react';
+import { Search, X, Plus, Check } from 'lucide-react';
 
 interface FilterBarProps {
   filters: FilterState;
   onFiltersChange: (filters: FilterState) => void;
   onSearch: () => void;
   onClear: () => void;
+  /** Lista de restaurantes (puede venir del padre, ej. leída desde Excel/Google Sheets) */
+  restaurantes?: string[];
+  /** Callback opcional para persistir el nuevo restaurante en el backend */
+  onAddRestaurante?: (nombre: string) => void;
 }
+
 const MESES = [
   { value: '01', label: 'Enero' },
   { value: '02', label: 'Febrero' },
@@ -44,18 +51,59 @@ const MESES = [
   { value: '12', label: 'Diciembre' },
 ];
 
+const RESTAURANTES_DEFAULT = [
+  'AJÍ',
+  'DF',
+  'ADMIN',
+  'BARRIO CAFÉ',
+  'LA CONTENTERA',
+  'FRITONI',
+  'CANTABAR',
+];
 
 export function FilterBar({
   filters,
   onFiltersChange,
   onSearch,
   onClear,
+  restaurantes,
+  onAddRestaurante,
 }: FilterBarProps) {
+  // Lista local para reflejar de inmediato un restaurante recién agregado,
+  // aunque el padre todavía no haya refrescado su prop `restaurantes`.
+  const [restaurantesLocal, setRestaurantesLocal] = useState<string[]>(
+    restaurantes ?? RESTAURANTES_DEFAULT
+  );
+  const [showAddRestaurante, setShowAddRestaurante] = useState(false);
+  const [nuevoRestaurante, setNuevoRestaurante] = useState('');
+
+  const listaRestaurantes = restaurantes ?? restaurantesLocal;
+
   const handleInputChange = (field: keyof FilterState, value: string) => {
     onFiltersChange({
       ...filters,
       [field]: value,
     });
+  };
+
+  const handleConfirmAddRestaurante = () => {
+    const nombre = nuevoRestaurante.trim().toUpperCase();
+    if (!nombre) return;
+
+    if (!listaRestaurantes.includes(nombre)) {
+      setRestaurantesLocal((prev) => [...prev, nombre]);
+      onAddRestaurante?.(nombre); // el padre lo guarda en Excel/BD
+    }
+
+    // Seleccionamos automáticamente el restaurante recién creado
+    handleInputChange('restaurante', nombre);
+    setNuevoRestaurante('');
+    setShowAddRestaurante(false);
+  };
+
+  const handleCancelAddRestaurante = () => {
+    setNuevoRestaurante('');
+    setShowAddRestaurante(false);
   };
 
   return (
@@ -85,7 +133,6 @@ export function FilterBar({
           />
         </div>
 
-
         {/* Cumpleaños (Mes) */}
         <div className="space-y-2">
           <label className="text-sm font-medium text-foreground">Mes (Cumpleaños)</label>
@@ -107,35 +154,23 @@ export function FilterBar({
           </Select>
         </div>
 
-
-        {/* Estado Civil */}
+        {/* Fecha de Ingreso (Mes) -- NUEVO */}
         <div className="space-y-2">
-          <label className="text-sm font-medium text-foreground">Estado Civil</label>
-          <Select value={filters.estadoCivil} onValueChange={(value) => handleInputChange('estadoCivil', value)}>
+          <label className="text-sm font-medium text-foreground">Mes (Ingreso)</label>
+          <Select
+            value={filters.mesIngreso}
+            onValueChange={(value) => handleInputChange('mesIngreso', value)}
+          >
             <SelectTrigger className="bg-background">
-              <SelectValue placeholder="Seleccionar estado civil" />
+              <SelectValue placeholder="Seleccionar un mes" />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="all">Todos</SelectItem>
-              <SelectItem value="soltero">Soltero/a</SelectItem>
-              <SelectItem value="casado">Casado/a</SelectItem>
-              <SelectItem value="divorciado">Divorciado/a</SelectItem>
-              <SelectItem value="viudo">Viudo/a</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-
-        {/* Estado */}
-        <div className="space-y-2">
-          <label className="text-sm font-medium text-foreground">Estado</label>
-          <Select value={filters.estado} onValueChange={(value) => handleInputChange('estado', value)}>
-            <SelectTrigger className="bg-background">
-              <SelectValue placeholder="Seleccionar estado" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Todos</SelectItem>
-              <SelectItem value="activo">Activo</SelectItem>
-              <SelectItem value="inactivo">Inactivo</SelectItem>
+              {MESES.map(({ value, label }) => (
+                <SelectItem key={value} value={value}>
+                  {label}
+                </SelectItem>
+              ))}
             </SelectContent>
           </Select>
         </div>
@@ -159,23 +194,50 @@ export function FilterBar({
             </SelectContent>
           </Select>
         </div>
+  
+        
+        {/* Estado */}
+        <div className="space-y-2">
+          <label className="text-sm font-medium text-foreground">Estado</label>
+          <Select value={filters.estado} onValueChange={(value) => handleInputChange('estado', value)}>
+            <SelectTrigger className="bg-background">
+              <SelectValue placeholder="Seleccionar estado" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todos</SelectItem>
+              <SelectItem value="activo">Activo</SelectItem>
+              <SelectItem value="inactivo">Inactivo</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        
+
+        {/* Estado Civil */}
+        <div className="space-y-2">
+          <label className="text-sm font-medium text-foreground">Estado Civil</label>
+          <Select value={filters.estadoCivil} onValueChange={(value) => handleInputChange('estadoCivil', value)}>
+            <SelectTrigger className="bg-background">
+              <SelectValue placeholder="Seleccionar estado civil" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todos</SelectItem>
+              <SelectItem value="soltero">Soltero/a</SelectItem>
+              <SelectItem value="casado">Casado/a</SelectItem>
+              <SelectItem value="divorciado">Divorciado/a</SelectItem>
+              <SelectItem value="viudo">Viudo/a</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
       </div>
 
       {/* Botones de acción */}
       <div className="flex flex-wrap gap-2 pt-4">
-        <Button
-          onClick={onSearch}
-          variant="outline"
-          className="gap-2"
-        >
+        <Button onClick={onSearch} variant="outline" className="gap-2">
           <Search className="w-4 h-4" />
           Buscar
         </Button>
-        <Button
-          onClick={onClear}
-          variant="outline"
-          className="gap-2"
-        >
+        <Button onClick={onClear} variant="outline" className="gap-2">
           <X className="w-4 h-4" />
           Limpiar
         </Button>
