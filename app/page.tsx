@@ -49,6 +49,7 @@ export default function Home() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [restaurantes, setRestaurantes] = useState<string[]>([]);
 
   // ─── Estado de UI ──────────────────────────────────────────────────────────
   const [filters, setFilters] = useState<FilterState>({
@@ -94,6 +95,14 @@ export default function Home() {
   useEffect(() => {
     fetchEmployees();
   }, [fetchEmployees]);
+
+  // carga inicial desde el Google Sheet
+  useEffect(() => {
+  fetch('/api/restaurantes')
+    .then((res) => res.json())
+    .then((data) => setRestaurantes(data.restaurantes ?? []))
+    .catch((err) => console.error('Error al cargar restaurantes:', err));
+  }, []);
 
   // ─── Filtrar empleados ─────────────────────────────────────────────────────
     const filteredEmployees = useMemo(() => {
@@ -223,6 +232,22 @@ export default function Home() {
     setCurrentPage(1);
   };
 
+// guarda el nuevo restaurante en el Sheet y actualiza el estado local
+  const handleAddRestaurante = async (nombre: string) => {
+    const res = await fetch('/api/restaurantes', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ nombre }),
+    });
+
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || 'No se pudo guardar el restaurante');
+    }
+
+    setRestaurantes((prev) => [...prev, nombre]);
+  };
+
   const handlePageChange = (page: number) => setCurrentPage(page);
 
   const handleItemsPerPageChange = (items: number) => {
@@ -307,6 +332,8 @@ export default function Home() {
                     onFiltersChange={setFilters}
                     onSearch={handleSearch}
                     onClear={handleClearFilters}
+                    restaurantes={restaurantes}
+                    onAddRestaurante={handleAddRestaurante}
                   />
                 )}
               </div>
