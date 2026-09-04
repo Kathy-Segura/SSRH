@@ -11,7 +11,7 @@ import {
 } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Employee } from '@/types/employee';
-import { Save } from 'lucide-react';
+import { Save, Loader2 } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { calcularDiasTrabajados } from '@/utiles/dateutils';
 
@@ -22,6 +22,9 @@ interface EmployeeModalProps {
   employee?: Employee;
   isEditing?: boolean;
 }
+
+// Lista de respaldo, solo se usa si falla la carga desde el Sheet
+const RESTAURANTES_FALLBACK = ['AJÍ', 'DF', 'ADMIN', 'BARRIO CAFÉ', 'LA CONTENTERA', 'FRITONI', 'CANTABAR'];
 
 const inp = "w-full h-11 px-4 rounded-xl border border-gray-200 bg-white text-sm text-gray-800 placeholder:text-gray-300 outline-none focus:border-[#4BBFCC] focus:ring-2 focus:ring-[#4BBFCC]/15 transition-all";
 const sel = "h-11 w-full rounded-xl border border-gray-200 bg-white text-sm text-gray-800 focus:border-[#4BBFCC] focus:ring-2 focus:ring-[#4BBFCC]/15 transition-all";
@@ -78,6 +81,36 @@ export function EmployeeModal({
   isEditing = false,
 }: EmployeeModalProps) {
   const [formData, setFormData] = useState<Employee>(employee || EMPTY_EMPLOYEE);
+
+  // ── Restaurantes: se cargan desde el Google Sheet vía /api/restaurantes ──
+  const [restaurantes, setRestaurantes] = useState<string[]>(RESTAURANTES_FALLBACK);
+  const [isLoadingRestaurantes, setIsLoadingRestaurantes] = useState(false);
+
+  useEffect(() => {
+    if (!isOpen) return; // solo consultamos cuando el modal está abierto
+
+    let cancelado = false;
+    const fetchRestaurantes = async () => {
+      setIsLoadingRestaurantes(true);
+      try {
+        const res = await fetch('/api/restaurantes');
+        if (!res.ok) throw new Error('No se pudo obtener la lista de restaurantes');
+        const data = await res.json();
+        const lista: string[] = Array.isArray(data?.restaurantes) ? data.restaurantes : [];
+        if (!cancelado && lista.length > 0) {
+          setRestaurantes(lista);
+        }
+      } catch (err) {
+        console.error('Error al cargar restaurantes:', err);
+        // Nos quedamos con el fallback estático si falla la carga
+      } finally {
+        if (!cancelado) setIsLoadingRestaurantes(false);
+      }
+    };
+
+    fetchRestaurantes();
+    return () => { cancelado = true; };
+  }, [isOpen]);
 
   useEffect(() => {
   if (employee) {
@@ -139,10 +172,12 @@ export function EmployeeModal({
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent className="w-[98vw] max-w-[1500px] max-h-[92vh] overflow-y-auto bg-[#f8fafb] rounded-2xl p-0 shadow-xl border border-gray-100">
+      {/* Modal a 90% del ancho de pantalla: flex-col con header y footer fijos,
+          y una única zona central con scroll (así el header/footer nunca se mueven). */}
+      <DialogContent className="w-[90vw] max-w-[90vw] sm:max-w-[90vw] h-[94vh] max-h-[94vh] overflow-hidden bg-[#f8fafb] rounded-2xl p-0 shadow-xl border border-gray-100 flex flex-col">
 
-        {/* Header */}
-        <DialogHeader className="sticky top-0 z-10 bg-white px-10 pt-7 pb-6 border-b border-gray-100 rounded-t-2xl">
+        {/* Header (fijo) */}
+        <DialogHeader className="flex-shrink-0 bg-white px-10 pt-7 pb-6 border-b border-gray-100 rounded-t-2xl">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
               <div className="w-1 h-8 rounded-full bg-[#4BBFCC]" />
@@ -159,280 +194,300 @@ export function EmployeeModal({
           </div>
         </DialogHeader>
 
-        <div className="px-10 py-8 space-y-8">
+        {/* Zona con scroll: todas las secciones viven aquí */}
+        <div className="flex-1 overflow-y-auto px-10 py-8">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 items-start">
 
-          {/* ── SECCIÓN 1: Datos Personales ── */}
-          <div className="bg-white rounded-2xl p-7 border border-gray-100 shadow-sm">
-            <SectionTitle title="Datos Personales" />
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-x-8 gap-y-6">
-              <div className="md:col-span-3">
-                <Field label="Nombre Completo *">
-                  <input
-                    placeholder="Juan Manuel García López"
-                    value={formData.nombreCompleto ?? ''}
-                    onChange={e =>
-                      set('nombreCompleto', e.target.value.toUpperCase())
-                    }
-                    className={inp}
-                    required
-                  />
-              </Field>
-          </div>
-              <div className="md:col-span-2">
-                <Field label="Cédula *">
-                  <input
-                    placeholder="001-180901-1023U"
-                    value={formData.cedula}
-                    onChange={e => {
-                      // Elimina todo excepto alfanuméricos
-                      const raw = e.target.value.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
-                      let formatted = raw;
-                      if (raw.length > 3 && raw.length <= 9) {
-                        formatted = `${raw.slice(0, 3)}-${raw.slice(3)}`;
-                      } else if (raw.length > 9) {
-                        formatted = `${raw.slice(0, 3)}-${raw.slice(3, 9)}-${raw.slice(9, 14)}`;
+          {/* ── CARD 1 (2/3 del ancho): Datos Personales + Laboral + Contacto ── */}
+          <div className="lg:col-span-2 bg-white rounded-2xl p-7 border border-gray-100 shadow-sm space-y-8">
+
+            {/* Datos Personales */}
+            <div>
+              <SectionTitle title="Datos Personales" />
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-x-8 gap-y-6">
+                <div className="md:col-span-3">
+                  <Field label="Nombre Completo *">
+                    <input
+                      placeholder="Juan Manuel García López"
+                      value={formData.nombreCompleto ?? ''}
+                      onChange={e =>
+                        set('nombreCompleto', e.target.value.toUpperCase())
                       }
-                      set('cedula', formatted);
-                    }}
-                    className={inp}
-                    maxLength={16}
-                  />
+                      className={inp}
+                      required
+                    />
                 </Field>
-              </div>
-              <div>
-                <Field label="Estado Civil">
-                  <Select value={formData.estadoCivil || 'soltero'} onValueChange={v => set('estadoCivil', v)}>
-                    <SelectTrigger className={sel}><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="soltero">Soltero/a</SelectItem>
-                      <SelectItem value="casado">Casado/a</SelectItem>
-                      <SelectItem value="divorciado">Divorciado/a</SelectItem>
-                      <SelectItem value="viudo">Viudo/a</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </Field>
-              </div>
-              <div className="md:col-span-2 xl:col-span-3">
-                <Field label="Dirección">
-                  <input
-                    placeholder="Calle, zona, barrio, ciudad..."
-                    value={formData.direccion}
-                    onChange={e => set('direccion', e.target.value)}
-                    className={inp}
-                  />
-                </Field>
+            </div>
+                <div className="md:col-span-2">
+                  <Field label="Cédula *">
+                    <input
+                      placeholder="001-180901-1023U"
+                      value={formData.cedula}
+                      onChange={e => {
+                        // Elimina todo excepto alfanuméricos
+                        const raw = e.target.value.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
+                        let formatted = raw;
+                        if (raw.length > 3 && raw.length <= 9) {
+                          formatted = `${raw.slice(0, 3)}-${raw.slice(3)}`;
+                        } else if (raw.length > 9) {
+                          formatted = `${raw.slice(0, 3)}-${raw.slice(3, 9)}-${raw.slice(9, 14)}`;
+                        }
+                        set('cedula', formatted);
+                      }}
+                      className={inp}
+                      maxLength={16}
+                    />
+                  </Field>
+                </div>
+                <div>
+                  <Field label="Estado Civil">
+                    <Select value={formData.estadoCivil || 'soltero'} onValueChange={v => set('estadoCivil', v)}>
+                      <SelectTrigger className={sel}><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="soltero">Soltero/a</SelectItem>
+                        <SelectItem value="casado">Casado/a</SelectItem>
+                        <SelectItem value="divorciado">Divorciado/a</SelectItem>
+                        <SelectItem value="viudo">Viudo/a</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </Field>
+                </div>
+                <div className="md:col-span-2 xl:col-span-3">
+                  <Field label="Dirección">
+                    <input
+                      placeholder="Calle, zona, barrio, ciudad..."
+                      value={formData.direccion}
+                      onChange={e => set('direccion', e.target.value)}
+                      className={inp}
+                    />
+                  </Field>
+                </div>
               </div>
             </div>
-          </div>
 
-          {/* ── SECCIÓN 2: Información Laboral ── */}
-          <div className="bg-white rounded-2xl p-7 border border-gray-100 shadow-sm">
-            <SectionTitle title="Información Laboral" />
-            <div className="grid grid-cols-2 gap-x-8 gap-y-6">
+            {/* Información Laboral */}
+            <div className="pt-8 border-t border-gray-100">
+              <SectionTitle title="Información Laboral" />
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-x-8 gap-y-6">
 
-              {/* Fila 1: Cargo - Restaurante */}
-              <div>
-                <Field label="Cargo">
-                  <input
-                    placeholder="Chef, Mesero, Cajero..."
-                    value={formData.cargo}
-                    onChange={e => set('cargo', e.target.value)}
-                    className={inp}
-                  />
-                </Field>
-              </div>
-              <div>
-                <Field label="Restaurante">
-                  <Select value={formData.restaurante || 'DF'} onValueChange={v => set('restaurante', v)}>
-                    <SelectTrigger className={sel}><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="AJÍ">AJÍ</SelectItem>
-                      <SelectItem value="DF">DF</SelectItem>
-                      <SelectItem value="ADMIN">ADMIN</SelectItem>
-                      <SelectItem value="BARRIO CAFÉ">BARRIO CAFÉ</SelectItem>
-                      <SelectItem value="LA CONTENTERA">LA CONTENTERA</SelectItem>
-                      <SelectItem value="FRITONI">FRITONI</SelectItem>
-                      <SelectItem value="CANTABAR">CANTABAR</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </Field>
-              </div>
+                {/* Fila 1: Cargo - Restaurante */}
+                <div>
+                  <Field label="Cargo">
+                    <input
+                      placeholder="Chef, Mesero, Cajero..."
+                      value={formData.cargo}
+                      onChange={e => set('cargo', e.target.value)}
+                      className={inp}
+                    />
+                  </Field>
+                </div>
+                <div>
+                  <Field label="Restaurante">
+                    <Select value={formData.restaurante || 'DF'} onValueChange={v => set('restaurante', v)}>
+                      <SelectTrigger className={sel}>
+                        <SelectValue placeholder={isLoadingRestaurantes ? 'Cargando...' : 'Selecciona'} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {isLoadingRestaurantes && restaurantes.length === 0 ? (
+                          <div className="flex items-center gap-2 px-3 py-2 text-sm text-gray-400">
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" /> Cargando restaurantes...
+                          </div>
+                        ) : (
+                          restaurantes.map((r) => (
+                            <SelectItem key={r} value={r}>{r}</SelectItem>
+                          ))
+                        )}
+                      </SelectContent>
+                    </Select>
+                  </Field>
+                </div>
 
-              {/* Fila 2: Salario - Beneficios */}
-              <div>
-                <Field label="Salario">
-                  <input
-                    type="number"
-                    min={0}
-                    value={formData.salario || ''}
-                    onChange={e => set('salario', e.target.value)}
-                    className={inp}
-                  />
-                </Field>
-              </div>
-              <div>
-                <Field label="Beneficios">
-                  <input
-                    placeholder="Bonos, alimentación, transporte..."
-                    value={formData.beneficios || ''}
-                    onChange={e => set('beneficios', e.target.value)}
-                    className={inp}
-                  />
-                </Field>
-              </div>
+                {/* Fila 2: Salario - Beneficios */}
+                <div>
+                  <Field label="Salario">
+                    <input
+                      type="number"
+                      min={0}
+                      value={formData.salario || ''}
+                      onChange={e => set('salario', e.target.value)}
+                      className={inp}
+                    />
+                  </Field>
+                </div>
+                <div>
+                  <Field label="Beneficios">
+                    <input
+                      placeholder="Bonos, alimentación, transporte..."
+                      value={formData.beneficios || ''}
+                      onChange={e => set('beneficios', e.target.value)}
+                      className={inp}
+                    />
+                  </Field>
+                </div>
 
-              {/* Fila 3: Estado - Días Trabajados */}
-              <div>
-                <Field label="Estado">
-                  <Select value={formData.estado || 'activo'} onValueChange={v => set('estado', v)}>
-                    <SelectTrigger className={sel}><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="activo">Activo</SelectItem>
-                      <SelectItem value="inactivo">Inactivo</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </Field>
-              </div>
-             <div>
-                <Field label="Días Trabajados">
-                  <input
-                    type="number"
-                    min={0}
-                    value={formData.diasTrabajados ?? ''}
-                    readOnly
-                    className={`${inp} bg-gray-100 cursor-not-allowed`}
-                  />
-                </Field>
-             </div>
-            </div>
-          </div>
-          {/* ── SECCIÓN 3: Contacto y Datos Financieros ── */}
-          <div className="bg-white rounded-2xl p-7 border border-gray-100 shadow-sm">
-            <SectionTitle title="Contacto y Datos Financieros" />
-            <div className="grid grid-cols-2 gap-x-8 gap-y-6">
-              <div>
-                <Field label="Teléfono Principal">
-                  <input
-                    placeholder="+505 8888-0000"
-                    value={formData.numeroTelefono}
-                    onChange={e => set('numeroTelefono', e.target.value)}
-                    className={inp}
-                  />
-                </Field>
-              </div>
-              <div>
-                <Field label="Teléfono Emergencia">
-                  <input
-                    placeholder="+505 8888-0000"
-                    value={formData.numeroEmergencia}
-                    onChange={e => set('numeroEmergencia', e.target.value)}
-                    className={inp}
-                  />
-                </Field>
-              </div>
-              <div>
-                <Field label="Número INSS">
-                  <input
-                    placeholder="INSS-001"
-                    value={formData.inss}
-                    onChange={e => set('inss', e.target.value)}
-                    className={inp}
-                  />
-                </Field>
-              </div>
-              <div>
-                <Field label="Cuenta BAC">
-                  <input
-                    placeholder="123456789"
-                    value={formData.cuentaBac}
-                    onChange={e => set('cuentaBac', e.target.value)}
-                    className={inp}
-                  />
-                </Field>
+                {/* Fila 3: Estado - Días Trabajados */}
+                <div>
+                  <Field label="Estado">
+                    <Select value={formData.estado || 'activo'} onValueChange={v => set('estado', v)}>
+                      <SelectTrigger className={sel}><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="activo">Activo</SelectItem>
+                        <SelectItem value="inactivo">Inactivo</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </Field>
+                </div>
+               <div>
+                  <Field label="Días Trabajados">
+                    <input
+                      type="number"
+                      min={0}
+                      value={formData.diasTrabajados ?? ''}
+                      readOnly
+                      className={`${inp} bg-gray-100 cursor-not-allowed`}
+                    />
+                  </Field>
+               </div>
               </div>
             </div>
-          </div>
 
-          {/* ── SECCIÓN 4: Fechas ── */}
-          <div className="bg-white rounded-2xl p-7 border border-gray-100 shadow-sm">
-            <SectionTitle title="Fechas" />
-            <div className="grid grid-cols-2 gap-x-8 gap-y-6">
-              <div>
-                <Field label="Cumpleaños">
-                  <input
-                    type="date"
-                    value={formData.cumpleanos}
-                    onChange={e => set('cumpleanos', e.target.value)}
-                    className={inp}
-                  />
-                </Field>
-              </div>
-              <div>
-                <Field label="Fecha de Ingreso">
-                  <input
-                    type="date"
-                    value={formData.fechaIngreso}
-                    onChange={e => set('fechaIngreso', e.target.value)}
-                    className={inp}
-                  />
-                </Field>
-              </div>
-              <div>
-                <Field label="Fecha de Egreso">
-                  <input
-                    type="date"
-                    value={formData.fechaEgreso}
-                    onChange={e => set('fechaEgreso', e.target.value)}
-                    className={inp}
-                  />
-                </Field>
-              </div>
-              <div>
-                <Field label="Fecha de Retiro">
-                  <input
-                    type="date"
-                    value={formData.fechaRetiro}
-                    onChange={e => set('fechaRetiro', e.target.value)}
-                    className={inp}
-                  />
-                </Field>
+            {/* Contacto y Datos Financieros */}
+            <div className="pt-8 border-t border-gray-100">
+              <SectionTitle title="Contacto y Datos Financieros" />
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-x-8 gap-y-6">
+                <div>
+                  <Field label="Teléfono Principal">
+                    <input
+                      placeholder="+505 8888-0000"
+                      value={formData.numeroTelefono}
+                      onChange={e => set('numeroTelefono', e.target.value)}
+                      className={inp}
+                    />
+                  </Field>
+                </div>
+                <div>
+                  <Field label="Teléfono Emergencia">
+                    <input
+                      placeholder="+505 8888-0000"
+                      value={formData.numeroEmergencia}
+                      onChange={e => set('numeroEmergencia', e.target.value)}
+                      className={inp}
+                    />
+                  </Field>
+                </div>
+                <div>
+                  <Field label="Número INSS">
+                    <input
+                      placeholder="INSS-001"
+                      value={formData.inss}
+                      onChange={e => set('inss', e.target.value)}
+                      className={inp}
+                    />
+                  </Field>
+                </div>
+                <div>
+                  <Field label="Cuenta BAC">
+                    <input
+                      placeholder="123456789"
+                      value={formData.cuentaBac}
+                      onChange={e => set('cuentaBac', e.target.value)}
+                      className={inp}
+                    />
+                  </Field>
+                </div>
               </div>
             </div>
-          </div>
 
-          {/* ── SECCIÓN 5: Observaciones ── */}
-          <div className="bg-white rounded-2xl p-7 border border-gray-100 shadow-sm">
-            <SectionTitle title="Observaciones" />
-            <Field label="Notas adicionales">
-              <textarea
-                placeholder="Información adicional sobre el empleado..."
-                value={formData.observaciones}
-                onChange={e => set('observaciones', e.target.value)}
-                rows={5}
-                className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-white text-sm text-gray-800 placeholder:text-gray-300 outline-none focus:border-[#4BBFCC] focus:ring-2 focus:ring-[#4BBFCC]/15 transition-all resize-none"
-              />
-            </Field>
           </div>
+          {/* ── fin CARD 1 ── */}
 
-          {/* ── Botones ── */}
-          <div className="flex items-center justify-end gap-3 pt-2 pb-1 border-t border-gray-100">
-            <button
-              type="button"
-              onClick={onClose}
-              className="h-11 px-6 rounded-xl text-sm font-medium text-gray-500 border border-gray-200 hover:bg-gray-50 transition-all"
-            >
-              Cancelar
-            </button>
-            <button
-              type="button"
-              onClick={handleSave}
-              className="h-11 px-7 rounded-xl text-sm font-semibold text-white bg-[#4BBFCC] hover:bg-[#3aabb8] transition-all flex items-center gap-2 shadow-md shadow-[#4BBFCC]/20"
-            >
-              <Save className="w-4 h-4" /> {isEditing ? 'Guardar Cambios' : 'Actualizar'}
-            </button>
+          {/* ── CARD 2 (1/3 del ancho): Fechas arriba, Observaciones debajo ── */}
+          <div className="lg:col-span-1 space-y-8">
+
+            {/* Fechas */}
+            <div className="bg-white rounded-2xl p-7 border border-gray-100 shadow-sm">
+              <SectionTitle title="Fechas" />
+              <div className="grid grid-cols-1 gap-y-6">
+                <div>
+                  <Field label="Fecha de Ingreso">
+                    <input
+                      type="date"
+                      value={formData.fechaIngreso}
+                      onChange={e => set('fechaIngreso', e.target.value)}
+                      className={inp}
+                    />
+                  </Field>
+                </div>
+                <div>
+                  <Field label="Fecha de Egreso">
+                    <input
+                      type="date"
+                      value={formData.fechaEgreso}
+                      onChange={e => set('fechaEgreso', e.target.value)}
+                      className={inp}
+                    />
+                  </Field>
+                </div>
+                <div>
+                  <Field label="Fecha de Retiro">
+                    <input
+                      type="date"
+                      value={formData.fechaRetiro}
+                      onChange={e => set('fechaRetiro', e.target.value)}
+                      className={inp}
+                    />
+                  </Field>
+                </div>
+                <div>
+                  <Field label="Cumpleaños">
+                    <input
+                      type="date"
+                      value={formData.cumpleanos}
+                      onChange={e => set('cumpleanos', e.target.value)}
+                      className={inp}
+                    />
+                  </Field>
+                </div>
+              </div>
+            </div>
+
+            {/* Observaciones */}
+            <div className="bg-white rounded-2xl p-7 border border-gray-100 shadow-sm">
+              <SectionTitle title="Observaciones" />
+              <Field label="Notas adicionales">
+                <textarea
+                  placeholder="Información adicional sobre el empleado..."
+                  value={formData.observaciones}
+                  onChange={e => set('observaciones', e.target.value)}
+                  rows={7}
+                  className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-white text-sm text-gray-800 placeholder:text-gray-300 outline-none focus:border-[#4BBFCC] focus:ring-2 focus:ring-[#4BBFCC]/15 transition-all resize-none"
+                />
+              </Field>
+            </div>
           </div>
+          {/* ── fin CARD 2 ── */}
 
         </div>
+        </div>
+
+        {/* ── Botones (fijos, siempre visibles) ── */}
+        <div className="flex-shrink-0 flex items-center justify-end gap-3 px-10 py-5 bg-white border-t border-gray-100 rounded-b-2xl">
+          <button
+            type="button"
+            onClick={onClose}
+            className="h-11 px-6 rounded-xl text-sm font-medium text-gray-500 border border-gray-200 hover:bg-gray-50 transition-all"
+          >
+            Cancelar
+          </button>
+          <button
+            type="button"
+            onClick={handleSave}
+            className="h-11 px-7 rounded-xl text-sm font-semibold text-white bg-[#4BBFCC] hover:bg-[#3aabb8] transition-all flex items-center gap-2 shadow-md shadow-[#4BBFCC]/20"
+          >
+            <Save className="w-4 h-4" /> {isEditing ? 'Guardar Cambios' : 'Actualizar'}
+          </button>
+        </div>
+
       </DialogContent>
     </Dialog>
   );
