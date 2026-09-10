@@ -18,7 +18,7 @@ import { Employee } from '@/types/employee';
 import { FilterState } from '@/types/filter';
 import { Printer, ChevronUp, Plus, RefreshCw, AlertCircle } from 'lucide-react';
 import { FileText } from 'lucide-react';
-import { PreviewButton} from '@/components/preview-button-pdf';
+import { PreviewButton } from '@/components/preview-button-pdf';
 
 // funcion contadora de indices en el campo cedula
 const getMesDesdeCedula = (cedula: string): string => {
@@ -98,63 +98,63 @@ export default function Home() {
 
   // carga inicial desde el Google Sheet
   useEffect(() => {
-  fetch('/api/restaurantes')
-    .then((res) => res.json())
-    .then((data) => setRestaurantes(data.restaurantes ?? []))
-    .catch((err) => console.error('Error al cargar restaurantes:', err));
+    fetch('/api/restaurantes')
+      .then((res) => res.json())
+      .then((data) => setRestaurantes(data.restaurantes ?? []))
+      .catch((err) => console.error('Error al cargar restaurantes:', err));
   }, []);
 
   // ─── Filtrar empleados ─────────────────────────────────────────────────────
-    const filteredEmployees = useMemo(() => {
-  return employees.filter((employee) => {
-    const matchNombre = employee.nombreCompleto
-      .toLowerCase()
-      .includes(filters.nombre.toLowerCase());
-    const matchCedula = employee.cedula
-      .toLowerCase()
-      .includes(filters.cedula.toLowerCase());
-    const matchINSS = employee.inss
-      .toLowerCase()
-      .includes(filters.inss.toLowerCase());
-    const matchEstadoCivil =
-      !filters.estadoCivil ||
-      filters.estadoCivil === 'all' ||
-      employee.estadoCivil === filters.estadoCivil;
-    const matchEstado =
-      !filters.estado ||
-      filters.estado === 'all' ||
-      employee.estado === filters.estado;
-    const matchRestaurante =
-      !filters.restaurante ||
-      filters.restaurante === 'all' ||
-      employee.restaurante === filters.restaurante;
+  const filteredEmployees = useMemo(() => {
+    return employees.filter((employee) => {
+      const matchNombre = employee.nombreCompleto
+        .toLowerCase()
+        .includes(filters.nombre.toLowerCase());
+      const matchCedula = employee.cedula
+        .toLowerCase()
+        .includes(filters.cedula.toLowerCase());
+      const matchINSS = employee.inss
+        .toLowerCase()
+        .includes(filters.inss.toLowerCase());
+      const matchEstadoCivil =
+        !filters.estadoCivil ||
+        filters.estadoCivil === 'all' ||
+        employee.estadoCivil === filters.estadoCivil;
+      const matchEstado =
+        !filters.estado ||
+        filters.estado === 'all' ||
+        employee.estado === filters.estado;
+      const matchRestaurante =
+        !filters.restaurante ||
+        filters.restaurante === 'all' ||
+        employee.restaurante === filters.restaurante;
 
-    // ← Ahora usa la función en lugar del substring fijo
-    const mesCedula = getMesDesdeCedula(employee.cedula);
-    const matchMesCumple =
-      !filters.mescumple ||
-      filters.mescumple === 'all' ||
-      mesCedula === filters.mescumple;
-    
-    // Mes de ingreso (desde "Fecha de Ingreso", formato dd/mm/aaaa) -- NUEVO
-    const mesIngreso = getMesDesdeFecha(employee.fechaIngreso);
-    const matchMesIngreso =
-      !filters.mesIngreso ||
-      filters.mesIngreso === 'all' ||
-      mesIngreso === filters.mesIngreso;
+      // ← Ahora usa la función en lugar del substring fijo
+      const mesCedula = getMesDesdeCedula(employee.cedula);
+      const matchMesCumple =
+        !filters.mescumple ||
+        filters.mescumple === 'all' ||
+        mesCedula === filters.mescumple;
 
-    return (
-      matchNombre &&
-      matchCedula &&
-      matchINSS &&
-      matchEstadoCivil &&
-      matchEstado &&
-      matchRestaurante &&
-      matchMesCumple &&
-      matchMesIngreso
-    );
-  });
-}, [employees, filters]);
+      // Mes de ingreso (desde "Fecha de Ingreso", formato dd/mm/aaaa) -- NUEVO
+      const mesIngreso = getMesDesdeFecha(employee.fechaIngreso);
+      const matchMesIngreso =
+        !filters.mesIngreso ||
+        filters.mesIngreso === 'all' ||
+        mesIngreso === filters.mesIngreso;
+
+      return (
+        matchNombre &&
+        matchCedula &&
+        matchINSS &&
+        matchEstadoCivil &&
+        matchEstado &&
+        matchRestaurante &&
+        matchMesCumple &&
+        matchMesIngreso
+      );
+    });
+  }, [employees, filters]);
 
   // ─── Paginación ────────────────────────────────────────────────────────────
   const totalPages = Math.ceil(filteredEmployees.length / itemsPerPage);
@@ -216,6 +216,25 @@ export default function Home() {
     }
   };
 
+  // Eliminar empleado → DELETE a la API → recarga lista
+  const handleDeleteEmployee = async (employee: Employee) => {
+    setIsSaving(true);
+    try {
+      const response = await fetch(`/api/empleados/${employee.id}`, {
+        method: 'DELETE',
+      });
+      if (!response.ok) {
+        throw new Error('No se pudo eliminar el empleado');
+      }
+      // Recarga la lista desde Google Sheets para reflejar la eliminación
+      await fetchEmployees();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Error al eliminar empleado');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   const handleSearch = () => setCurrentPage(1);
 
   const handleClearFilters = () => {
@@ -232,7 +251,7 @@ export default function Home() {
     setCurrentPage(1);
   };
 
-// guarda el nuevo restaurante en el Sheet y actualiza el estado local
+  // guarda el nuevo restaurante en el Sheet y actualiza el estado local
   const handleAddRestaurante = async (nombre: string) => {
     const res = await fetch('/api/restaurantes', {
       method: 'POST',
@@ -375,6 +394,7 @@ export default function Home() {
                 employees={paginatedEmployees}
                 isLoading={isLoading}
                 onEdit={handleEditEmployee}
+                onDelete={handleDeleteEmployee}
               />
 
               {/* Controles de paginación */}

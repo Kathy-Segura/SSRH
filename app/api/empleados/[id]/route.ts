@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { updateEmpleado } from '@/lib/googleSheets';
+import { updateEmpleado, deleteEmpleado } from '@/lib/googleSheets';
+// src/app/api/empleados/[id]/route.ts
 
 export async function PUT(
   request: NextRequest,
-  context: { params: Promise<{ id: string }> }   // tipado correcto
+  context: { params: Promise<{ id: string }> }
 ) {
   try {
-    const { id } = await context.params;          // await obligatorio en Next.js 15
+    const { id } = await context.params;
     const rowIndex = parseInt(id, 10);
 
     if (isNaN(rowIndex) || rowIndex < 0) {
@@ -48,7 +49,7 @@ export async function PUT(
       body.diasTrabajados   || '0',
       body.fechaRetiro      || '',
       body.estadoCivil      || '',
-      body.estado           || 'activo',          //  campo estado agregado
+      body.estado           || 'activo',
     ];
 
     await updateEmpleado(rowIndex, fila);
@@ -59,6 +60,34 @@ export async function PUT(
     console.error('Error PUT /api/empleados/[id]:', error);
     return NextResponse.json(
       { error: 'Error al actualizar empleado en Google Sheets' },
+      { status: 500 }
+    );
+  }
+}
+
+export async function DELETE(
+  _request: NextRequest,
+  context: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { id } = await context.params;
+    const rowIndex = parseInt(id, 10);
+
+    if (isNaN(rowIndex) || rowIndex < 0) {
+      return NextResponse.json(
+        { error: 'ID de empleado inválido' },
+        { status: 400 }
+      );
+    }
+
+    await deleteEmpleado(rowIndex);
+
+    return NextResponse.json({ success: true, message: 'Empleado eliminado correctamente' });
+
+  } catch (error) {
+    console.error('Error DELETE /api/empleados/[id]:', error);
+    return NextResponse.json(
+      { error: 'No se pudo eliminar el empleado' },
       { status: 500 }
     );
   }
