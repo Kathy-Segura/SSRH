@@ -23,14 +23,12 @@ const sections = [
     icon: Users,
     description: 'Gestiona los datos de tus empleados'
   },
-  /*
-    PARA AGREGAR UN NUEVO BOTON DE MENU EN EL NABVAR
-    {
-    id: 'settings',
-    label: 'Configuración',
+  {
+    id: 'nomina',
+    label: 'Deducciones de Nomina',
     icon: Settings,
-    description: 'Ajusta los parámetros del sistema'
-  },*/
+    description: 'Gestiona las deducciones de empleados'
+  },
 ];
 
 export function HorizontalMenu({ activeSection, onSectionChange, isOpen = true }: HorizontalMenuProps) {

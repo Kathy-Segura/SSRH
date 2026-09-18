@@ -2,9 +2,10 @@
 /**
   COMPONENTE ENCARGADO DEL HEADER DE LA PAGINA Y DISEÑO RESPONSIVE.
 /**/
-import { Users, Menu, X } from 'lucide-react';
+import { Users, Menu, X, HomeIcon } from 'lucide-react';
 import { useState } from 'react';
 import { cn } from '@/lib/utils';
+import Home from '@/app/page';
 
 interface SidebarProps {
   activeSection: string;
@@ -16,6 +17,7 @@ export function Sidebar({ activeSection, onSectionChange }: SidebarProps) {
 
   const sections = [
     { id: 'employees', label: 'Registro de Empleados', icon: Users },
+    { id: 'nomina', label: 'Deducciones', icon: HomeIcon},
   ];
 
   return (

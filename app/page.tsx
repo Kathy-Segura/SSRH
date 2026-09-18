@@ -19,6 +19,7 @@ import { FilterState } from '@/types/filter';
 import { Printer, ChevronUp, Plus, RefreshCw, AlertCircle } from 'lucide-react';
 import { FileText } from 'lucide-react';
 import { PreviewButton } from '@/components/preview-button-pdf';
+import { PayrollModule } from '@/components/payroll-module';
 
 // funcion contadora de indices en el campo cedula
 const getMesDesdeCedula = (cedula: string): string => {
@@ -411,6 +412,9 @@ export default function Home() {
             </>
           )}
 
+          {activeSection === 'nomina' && (
+            <PayrollModule employees={employees} />
+          )}
           {activeSection === 'reports' && (
             <div className="bg-white rounded-lg p-8 text-center">
               <h2 className="text-2xl font-bold text-foreground">Reportes</h2>
