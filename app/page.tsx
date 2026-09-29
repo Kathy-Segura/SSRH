@@ -4,7 +4,7 @@
  * Pagina Principal donde se hace el llamado de todos los componenentes
  * Tambien metodos de carga de datos y renderizado de todo los componentes.
 */
-import { useState, useMemo, useEffect, useCallback } from 'react';
+import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { TopNavbar } from '@/components/top-navbar';
 import { HorizontalMenu } from '@/components/horizontal-menu';
@@ -193,6 +193,27 @@ export default function Home() {
     setSelectedEmployee(employee);
     setIsModalOpen(true);
   };
+
+  // ─── Enlace directo desde la hoja DEDUCCIONES (columna "enlace") ───────────
+  // La URL es .../?empleado=<cedula>; abre la ficha de ese empleado una sola vez
+  // por carga de página y luego limpia el parámetro (para que un F5 no la reabra).
+  const deepLinkAppliedRef = useRef(false);
+  useEffect(() => {
+    if (deepLinkAppliedRef.current || employees.length === 0) return;
+    deepLinkAppliedRef.current = true;
+
+    const cedulaParam = new URLSearchParams(window.location.search).get('empleado');
+    if (!cedulaParam) return;
+
+    const normalize = (value: string) => value.replace(/\s+/g, '').toUpperCase();
+    const target = employees.find((employee) => normalize(employee.cedula) === normalize(cedulaParam));
+    if (target) handleEditEmployee(target);
+    else console.warn(`Enlace de la hoja: no se encontró ningún empleado con cédula ${cedulaParam}`);
+
+    const url = new URL(window.location.href);
+    url.searchParams.delete('empleado');
+    window.history.replaceState({}, '', url.toString());
+  }, [employees]);
 
   // Guardar edición → PUT a la API → recarga lista
   const handleSaveEmployee = async (updatedEmployee: Employee) => {

@@ -49,6 +49,63 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
+/**
+ * Normaliza cualquier fecha guardada a ISO (yyyy-mm-dd), que es lo que usa el estado del formulario.
+ * REGLA ÚNICA: todo formato con "/" o "-" y año al final se interpreta SIEMPRE como DÍA/MES/AÑO
+ * (formato Nicaragua). Antes, "06/01/2026" (2 dígitos) se leía D/M pero "6/1/2026" (1 dígito) se leía M/D.
+ */
+function toInputDate(value: string | undefined): string {
+  if (!value) return '';
+  const v = String(value).trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return v; // ya es ISO
+  const m = v.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/);
+  if (!m) return '';
+  const day = Number(m[1]), month = Number(m[2]), year = Number(m[3]);
+  const d = new Date(year, month - 1, day);
+  // rechaza fechas imposibles (ej. 31/02/2026)
+  if (d.getFullYear() !== year || d.getMonth() !== month - 1 || d.getDate() !== day) return '';
+  return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+}
+
+function isoToDisplay(iso: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso || '');
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : '';
+}
+
+/** Campo de fecha dd/mm/aaaa (no depende del idioma del navegador). Emite ISO o '' al padre. */
+function DateField({ value, onChange }: { value: string; onChange: (iso: string) => void }) {
+  const [text, setText] = useState(isoToDisplay(value));
+
+  // sincroniza cuando el valor externo cambia (al abrir/cambiar de empleado)
+  useEffect(() => {
+    setText(prev => (toInputDate(prev) === value ? prev : isoToDisplay(value)));
+  }, [value]);
+
+  const handle = (raw: string) => {
+    const digits = raw.replace(/\D/g, '').slice(0, 8);
+    let out = digits;
+    if (digits.length > 4) out = `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4)}`;
+    else if (digits.length > 2) out = `${digits.slice(0, 2)}/${digits.slice(2)}`;
+    setText(out);
+    if (digits.length === 0) onChange('');
+    else if (digits.length === 8) onChange(toInputDate(out)); // '' si es inválida
+  };
+
+  const incompleta = text.length > 0 && !toInputDate(text);
+
+  return (
+    <input
+      type="text"
+      inputMode="numeric"
+      placeholder="dd/mm/aaaa"
+      maxLength={10}
+      value={text}
+      onChange={e => handle(e.target.value)}
+      className={`${inp} ${incompleta ? 'border-red-300 focus:border-red-400 focus:ring-red-100' : ''}`}
+    />
+  );
+}
+
 const EMPTY_EMPLOYEE: Employee = {
   id: '',
   nombreCompleto: '',
@@ -151,24 +208,6 @@ export function EmployeeModal({
     onSave(formData);
     onClose();
   };
-
-  function toInputDate(value: string | undefined): string {
-  if (!value) return '';
-  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
-  if (/^\d{2}\/\d{2}\/\d{4}$/.test(value)) {
-    const [day, month, year] = value.split('/');
-    return `${year}-${month}-${day}`;
-  }
-  if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(value)) {
-    const [month, day, year] = value.split('/');
-    return `${year}-${month.padStart(2,'0')}-${day.padStart(2,'0')}`;
-  }
-  if (/^\d{2}-\d{2}-\d{4}$/.test(value)) {
-    const [day, month, year] = value.split('-');
-    return `${year}-${month}-${day}`;
-  }
-  return '';
-}
 
   return (
     <Dialog open={isOpen} onOpenChange={onClose}>
@@ -410,42 +449,22 @@ export function EmployeeModal({
               <div className="grid grid-cols-1 gap-y-6">
                 <div>
                   <Field label="Fecha de Ingreso">
-                    <input
-                      type="date"
-                      value={formData.fechaIngreso}
-                      onChange={e => set('fechaIngreso', e.target.value)}
-                      className={inp}
-                    />
+                    <DateField value={formData.fechaIngreso} onChange={v => set('fechaIngreso', v)} />
                   </Field>
                 </div>
                 <div>
                   <Field label="Fecha de Egreso">
-                    <input
-                      type="date"
-                      value={formData.fechaEgreso}
-                      onChange={e => set('fechaEgreso', e.target.value)}
-                      className={inp}
-                    />
+                    <DateField value={formData.fechaEgreso} onChange={v => set('fechaEgreso', v)} />
                   </Field>
                 </div>
                 <div>
                   <Field label="Fecha de Retiro">
-                    <input
-                      type="date"
-                      value={formData.fechaRetiro}
-                      onChange={e => set('fechaRetiro', e.target.value)}
-                      className={inp}
-                    />
+                    <DateField value={formData.fechaRetiro} onChange={v => set('fechaRetiro', v)} />
                   </Field>
                 </div>
                 <div>
                   <Field label="Cumpleaños">
-                    <input
-                      type="date"
-                      value={formData.cumpleanos}
-                      onChange={e => set('cumpleanos', e.target.value)}
-                      className={inp}
-                    />
+                    <DateField value={formData.cumpleanos} onChange={v => set('cumpleanos', v)} />
                   </Field>
                 </div>
               </div>

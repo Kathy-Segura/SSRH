@@ -1,16 +1,29 @@
 import { google, sheets_v4 } from 'googleapis';
-import { PAYROLL_INPUT_FIELDS, type PayrollInputs } from './payroll-calculations';
+import { calcularTotales, PAYROLL_INPUT_FIELDS, type PayrollInputs } from './payroll-calculations';
 import {
+  computeInputDiffs,
   LEGACY_VERSION,
   normalizeCedula,
+  sanitizeNombre,
   type DeduccionApiItem,
   type DeduccionProblem,
   type DeduccionSaveItem,
+  type FieldChange,
 } from './payroll-validation';
 
 const SHEET_NAME = 'INDETERMINADO';
-const RESTAURANTES_SHEET_NAME = 'Restaurantes';
+const RESTAURANTES_SHEET_NAME = 'RESTAURANTES';
 const DEDUCCIONES_SHEET_NAME = 'DEDUCCIONES';
+const HISTORIAL_SHEET_NAME = 'HISTORIAL_DEDUCCIONES';
+
+// Dominio de la app para el enlace "Ver ficha" que se escribe en la hoja (punto 1.5).
+// Configurar NEXT_PUBLIC_APP_URL (o APP_BASE_URL) con la URL pública, p. ej.
+// https://miapp.vercel.app — sin esto, la columna "enlace" queda vacía.
+function getEmployeeLinkBase(): string | null {
+  const base = process.env.NEXT_PUBLIC_APP_URL || process.env.APP_BASE_URL;
+  if (!base) return null;
+  return base.trim().replace(/\/+$/, '') || null;
+}
 
 // ── Errores tipados (la API decide el código HTTP según la clase) ────────────
 
@@ -194,13 +207,20 @@ export async function appendRestaurante(nombre: string): Promise<void> {
 // DEDUCCIONES
 //
 // Formato de la hoja (una fila por periodo + cédula; el orden de columnas es
-// POSICIONAL, no reordenarlas):
+// POSICIONAL, no reordenarlas; las 3 últimas son de solo lectura/conveniencia,
+// nunca se leen de vuelta como fuente de verdad):
 //   A periodo | B cedula | C..K campos de PayrollInputs | L actualizadoEn
+//   M nombre | N totalPagar | O enlace
 // `periodo` = AAAA-MM-first|second (ver getPeriodoKey). `actualizadoEn` = ISO UTC
-// de la última escritura; sirve para detectar ediciones simultáneas.
+// de la última escritura; sirve para detectar ediciones simultáneas. `nombre` y
+// `totalPagar` son una foto del momento del guardado, para poder leer la hoja sin
+// abrir la app; el neto vigente SIEMPRE se recalcula con calcularTotales(inputs).
+// `enlace` es una fórmula HYPERLINK a la ficha del empleado (ver getEmployeeLinkBase).
 // ─────────────────────────────────────────────────────────────────────────────
 
-const DEDUCCIONES_COLUMNS = ['periodo', 'cedula', ...PAYROLL_INPUT_FIELDS, 'actualizadoEn'] as const;
+const DEDUCCIONES_COLUMNS = [
+  'periodo', 'cedula', ...PAYROLL_INPUT_FIELDS, 'actualizadoEn', 'nombre', 'totalPagar', 'enlace',
+] as const;
 const COLUMN_COUNT = DEDUCCIONES_COLUMNS.length;
 const REQUIRED_NUMERIC: ReadonlySet<string> = new Set(['salarioMensual', 'diasLaborados']);
 
@@ -289,6 +309,73 @@ async function createOrMigrateDeduccionesSheet(): Promise<number> {
   return sheetId;
 }
 
+const HISTORIAL_COLUMNS = ['fecha', 'periodo', 'cedula', 'nombre', 'campo', 'valorAnterior', 'valorNuevo'] as const;
+
+// Se crea recién cuando ocurre el primer cambio real (no en cada guardado): la mayoría
+// de guardados son altas nuevas, que no son "cambios" y no ameritan bitácora.
+let ensureHistorialPromise: Promise<number> | null = null;
+
+function ensureHistorialSheet(): Promise<number> {
+  if (!ensureHistorialPromise) {
+    ensureHistorialPromise = createHistorialSheet().catch((error) => {
+      ensureHistorialPromise = null;
+      throw error;
+    });
+  }
+  return ensureHistorialPromise;
+}
+
+async function createHistorialSheet(): Promise<number> {
+  const sheets = getSheets();
+  const spreadsheetId = getSpreadsheetId();
+
+  const meta = await sheets.spreadsheets.get({ spreadsheetId, fields: 'sheets.properties(sheetId,title)' });
+  const existingSheet = meta.data.sheets?.find((s) => s.properties?.title === HISTORIAL_SHEET_NAME);
+  if (existingSheet?.properties?.sheetId !== undefined && existingSheet.properties.sheetId !== null) {
+    return existingSheet.properties.sheetId;
+  }
+
+  const created = await sheets.spreadsheets.batchUpdate({
+    spreadsheetId,
+    requestBody: {
+      requests: [
+        { addSheet: { properties: { title: HISTORIAL_SHEET_NAME, gridProperties: { frozenRowCount: 1 } } } },
+      ],
+    },
+  });
+  const sheetId = created.data.replies?.[0]?.addSheet?.properties?.sheetId;
+  if (sheetId === undefined || sheetId === null) throw new Error(`No se pudo crear la pestaña "${HISTORIAL_SHEET_NAME}"`);
+
+  await sheets.spreadsheets.batchUpdate({
+    spreadsheetId,
+    requestBody: {
+      requests: [
+        {
+          updateCells: {
+            range: { sheetId, startRowIndex: 0, endRowIndex: 1, startColumnIndex: 0, endColumnIndex: HISTORIAL_COLUMNS.length },
+            rows: [{ values: HISTORIAL_COLUMNS.map((label) => cell(label)) }],
+            fields: 'userEnteredValue',
+          },
+        },
+        {
+          repeatCell: {
+            range: { sheetId, startRowIndex: 0, endRowIndex: 1, startColumnIndex: 0, endColumnIndex: HISTORIAL_COLUMNS.length },
+            cell: { userEnteredFormat: { textFormat: { bold: true } } },
+            fields: 'userEnteredFormat.textFormat.bold',
+          },
+        },
+      ],
+    },
+  });
+  return sheetId;
+}
+
+function buildHistorialRow(fecha: string, periodo: string, item: DeduccionSaveItem, change: FieldChange): sheets_v4.Schema$RowData {
+  return {
+    values: [cell(fecha), cell(periodo), cell(item.cedula), cell(item.nombre), cell(change.campo), cell(change.anterior), cell(change.nuevo)],
+  };
+}
+
 // ── Lectura estricta ─────────────────────────────────────────────────────────
 
 interface StoredRow {
@@ -296,6 +383,9 @@ interface StoredRow {
   periodo: string;
   cedula: string;
   actualizadoEn: string;
+  /** Columnas M/N: solo informativas, nunca invalidan la fila ni se usan para calcular. */
+  nombre: string | null;
+  totalPagarGuardado: number | null;
   inputs: PayrollInputs | null;
   problem: string | null;
 }
@@ -315,7 +405,10 @@ function parseStoredRow(cells: unknown[], rowNumber: number): StoredRow {
   const periodo = String(cellAt('periodo') ?? '').trim();
   const cedula = normalizeCedula(cellAt('cedula'));
   const actualizadoEn = String(cellAt('actualizadoEn') ?? '').trim();
-  const base = { rowNumber, periodo, cedula, actualizadoEn };
+  const nombre = sanitizeNombre(cellAt('nombre'));
+  const totalPagarRaw = readNumericCell(cellAt('totalPagar'));
+  const totalPagarGuardado = typeof totalPagarRaw === 'number' ? totalPagarRaw : null;
+  const base = { rowNumber, periodo, cedula, actualizadoEn, nombre, totalPagarGuardado };
 
   if (!periodo || !cedula) return { ...base, inputs: null, problem: 'Falta periodo o cédula' };
 
@@ -363,7 +456,10 @@ export async function getDeducciones(periodo: string): Promise<{ registros: Dedu
       problemas.push({ fila: row.rowNumber, motivo: `Cédula ${row.cedula} duplicada en el periodo (se usa la primera fila)` });
     } else {
       seen.add(row.cedula);
-      registros.push({ cedula: row.cedula, inputs: row.inputs, version: versionOf(row) });
+      registros.push({
+        cedula: row.cedula, inputs: row.inputs, version: versionOf(row),
+        nombre: row.nombre, totalPagarGuardado: row.totalPagarGuardado,
+      });
     }
   }
   return { registros, problemas };
@@ -383,12 +479,24 @@ function enqueueWrite<T>(task: () => Promise<T>): Promise<T> {
 const cell = (value: string | number): sheets_v4.Schema$CellData => ({
   userEnteredValue: typeof value === 'number' ? { numberValue: value } : { stringValue: value },
 });
+const formulaCell = (formula: string): sheets_v4.Schema$CellData => ({ userEnteredValue: { formulaValue: formula } });
+
+// Comillas dobles literales de la cédula dentro de la fórmula (por si alguna cédula las trajera).
+const escapeFormulaText = (value: string) => value.replace(/"/g, '""');
 
 function buildRowCells(periodo: string, item: DeduccionSaveItem, version: string): sheets_v4.Schema$CellData[] {
+  const linkBase = getEmployeeLinkBase();
   return DEDUCCIONES_COLUMNS.map((column) => {
     if (column === 'periodo') return cell(periodo);
     if (column === 'cedula') return cell(item.cedula);
     if (column === 'actualizadoEn') return cell(version);
+    if (column === 'nombre') return cell(item.nombre);
+    if (column === 'totalPagar') return cell(calcularTotales(item.inputs).netoPagar);
+    if (column === 'enlace') {
+      if (!linkBase) return cell('');
+      const url = `${linkBase}/?empleado=${encodeURIComponent(item.cedula)}`;
+      return formulaCell(`=HYPERLINK("${escapeFormulaText(url)}","Ver ficha")`);
+    }
     return cell(item.inputs[column]);
   });
 }
@@ -425,6 +533,7 @@ export function upsertDeducciones(periodo: string, items: DeduccionSaveItem[]): 
     const version = new Date().toISOString();
     const requests: sheets_v4.Schema$Request[] = [];
     const appended: sheets_v4.Schema$RowData[] = [];
+    const historialRows: sheets_v4.Schema$RowData[] = [];
 
     for (const item of items) {
       const cells = buildRowCells(periodo, item, version);
@@ -443,11 +552,23 @@ export function upsertDeducciones(periodo: string, items: DeduccionSaveItem[]): 
             fields: 'userEnteredValue',
           },
         });
+        // Solo se registra en el historial si había una fila válida previa y algo cambió;
+        // un alta nueva (current === undefined) no es un "cambio" y no se audita.
+        if (!current.problem && current.inputs) {
+          for (const change of computeInputDiffs(current.inputs, item.inputs)) {
+            historialRows.push(buildHistorialRow(version, periodo, item, change));
+          }
+        }
       } else {
         appended.push({ values: cells });
       }
     }
     if (appended.length > 0) requests.push({ appendCells: { sheetId, rows: appended, fields: 'userEnteredValue' } });
+
+    if (historialRows.length > 0) {
+      const historialSheetId = await ensureHistorialSheet();
+      requests.push({ appendCells: { sheetId: historialSheetId, rows: historialRows, fields: 'userEnteredValue' } });
+    }
 
     await getSheets().spreadsheets.batchUpdate({
       spreadsheetId: getSpreadsheetId(),

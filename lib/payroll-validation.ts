@@ -37,6 +37,15 @@ export function normalizeCedula(value: unknown): string {
   return String(value ?? '').replace(/\s+/g, '').toUpperCase();
 }
 
+const MAX_NAME_LENGTH = 120;
+
+// Nombre tal como se guarda en la columna "nombre" de DEDUCCIONES (solo para lectura
+// humana de la hoja; la identidad real del registro sigue siendo periodo + cédula).
+export function sanitizeNombre(value: unknown): string | null {
+  const text = String(value ?? '').replace(/\s+/g, ' ').trim();
+  return text ? text.slice(0, MAX_NAME_LENGTH) : null;
+}
+
 export function inputsToForm(inputs: PayrollInputs): FormValues {
   return Object.fromEntries(PAYROLL_INPUT_FIELDS.map((field) => [field, String(inputs[field])])) as FormValues;
 }
@@ -149,6 +158,11 @@ export interface DeduccionApiItem {
   inputs: PayrollInputs;
   /** Marca de la última escritura de la fila (control de concurrencia optimista). */
   version: string;
+  /** Nombre guardado en la hoja (columna "nombre"); solo informativo. */
+  nombre: string | null;
+  /** Total a pagar que quedó escrito en la hoja al momento de guardar; solo informativo,
+   *  el neto vigente siempre se recalcula en el cliente con calcularTotales(inputs). */
+  totalPagarGuardado: number | null;
 }
 
 export interface DeduccionSaveItem {
@@ -156,9 +170,29 @@ export interface DeduccionSaveItem {
   inputs: PayrollInputs;
   /** Versión que el cliente cargó; null si la fila no existía en la hoja. */
   version: string | null;
+  nombre: string;
 }
 
 export interface DeduccionProblem {
   fila: number;
   motivo: string;
+}
+
+// ── Historial de cambios (para auditar, p. ej., ajustes de vacaciones en el año) ──
+
+export interface FieldChange {
+  campo: PayrollField;
+  anterior: number;
+  nuevo: number;
+}
+
+/** Compara los valores previos guardados contra los nuevos. `before` null = fila nueva
+ * (no se reporta como "cambio": es una creación, no un ajuste). */
+export function computeInputDiffs(before: PayrollInputs | null, after: PayrollInputs): FieldChange[] {
+  if (!before) return [];
+  return PAYROLL_INPUT_FIELDS.filter((field) => before[field] !== after[field]).map((field) => ({
+    campo: field,
+    anterior: before[field],
+    nuevo: after[field],
+  }));
 }

@@ -87,11 +87,11 @@ type PayrollRow = Employee & {
   fieldErrors: FieldErrors;
 };
 type Notice = { kind: 'success' | 'error' | 'warning'; text: string; canReload?: boolean } | null;
-type SaveTarget = { cedulaKey: string; inputs: PayrollInputs; version: string | null };
+type SaveTarget = { cedulaKey: string; inputs: PayrollInputs; version: string | null; nombre: string };
 type SaveOutcome = { ok: true } | { ok: false; message: string };
 
 const isBlocked = (row: PayrollRow) => row.issues.length > 0 || Object.keys(row.fieldErrors).length > 0;
-const toTarget = (row: PayrollRow): SaveTarget => ({ cedulaKey: row.cedulaKey, inputs: row.inputs, version: row.version });
+const toTarget = (row: PayrollRow): SaveTarget => ({ cedulaKey: row.cedulaKey, inputs: row.inputs, version: row.version, nombre: row.nombreCompleto });
 
 export function PayrollModule({ employees }: { employees: Employee[] }) {
   const [mode, setMode] = useState<'table' | 'totals'>('table');
@@ -283,7 +283,7 @@ export function PayrollModule({ employees }: { employees: Employee[] }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           year: yearNumber, month: monthNumber, fortnight,
-          filas: targets.map((target) => ({ cedula: target.cedulaKey, inputs: target.inputs, version: target.version })),
+          filas: targets.map((target) => ({ cedula: target.cedulaKey, inputs: target.inputs, version: target.version, nombre: target.nombre })),
         }),
       });
       const data = await response.json().catch(() => ({}));
@@ -483,7 +483,7 @@ export function PayrollModule({ employees }: { employees: Employee[] }) {
               row={selected}
               canPersist={sheetReady && !isSaving}
               isSaving={isSaving}
-              onSave={(values) => persistRows([{ cedulaKey: selected.cedulaKey, inputs: values, version: selected.version }])}
+              onSave={(values) => persistRows([{ cedulaKey: selected.cedulaKey, inputs: values, version: selected.version, nombre: selected.nombreCompleto }])}
               onReload={reloadPeriod}
               onClose={() => setDetailOpen(false)}
             />

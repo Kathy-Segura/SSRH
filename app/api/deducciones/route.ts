@@ -11,6 +11,7 @@ import {
   MAX_ROWS_PER_SAVE,
   normalizeCedula,
   parsePeriodParams,
+  sanitizeNombre,
   validatePayrollInputs,
   type DeduccionSaveItem,
   type FieldErrors,
@@ -69,17 +70,19 @@ export async function POST(request: NextRequest) {
       const cedula = normalizeCedula(raw?.cedula);
       const inputs = coercePayrollInputs(raw?.inputs);
       const version = raw?.version === null || typeof raw?.version === 'string' ? (raw.version as string | null) : undefined;
+      const nombre = sanitizeNombre(raw?.nombre);
 
       if (!cedula) return json({ error: 'Todas las filas deben incluir cédula' }, 400);
       if (seen.has(cedula)) return json({ error: `Cédula repetida en el envío: ${cedula}` }, 400);
       if (!inputs) return json({ error: `Datos incompletos o no numéricos para la cédula ${cedula}` }, 400);
       if (version === undefined) return json({ error: `Falta version para la cédula ${cedula} (null si es un registro nuevo)` }, 400);
+      if (!nombre) return json({ error: `Falta nombre para la cédula ${cedula}` }, 400);
       seen.add(cedula);
 
       // Tope de días por seguridad: el máximo de una quincena. El front aplica además el tope por fechas de ingreso/egreso.
       const errores = validatePayrollInputs(inputs, PAYROLL_CONSTANTS.fortnightDays);
       if (Object.keys(errores).length > 0) invalid.push({ cedula, errores });
-      else items.push({ cedula, inputs, version });
+      else items.push({ cedula, inputs, version, nombre });
     }
 
     // Todo o nada: si una fila es inválida no se guarda ninguna.
