@@ -51,20 +51,54 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
 
 /**
  * Normaliza cualquier fecha guardada a ISO (yyyy-mm-dd), que es lo que usa el estado del formulario.
- * REGLA ÚNICA: todo formato con "/" o "-" y año al final se interpreta SIEMPRE como DÍA/MES/AÑO
- * (formato Nicaragua). Antes, "06/01/2026" (2 dígitos) se leía D/M pero "6/1/2026" (1 dígito) se leía M/D.
+ * Con "/" o "-" y año al final se lee como DÍA/MES/AÑO; solo si eso es imposible (ej. 03/15/1990)
+ * se acepta como MES/DÍA. Lo que teclea el usuario en DateField se valida siempre estricto dd/mm/aaaa.
+ * OJO: las fechas ambiguas que vienen del Sheet en mes/día no se pueden detectar aquí (ver toBirthdayInputDate).
  */
-function toInputDate(value: string | undefined): string {
+function toInputDate(value: string | undefined, allowMDYFallback = true): string {
   if (!value) return '';
   const v = String(value).trim();
   if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return v; // ya es ISO
   const m = v.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/);
   if (!m) return '';
   const day = Number(m[1]), month = Number(m[2]), year = Number(m[3]);
+  const valid = (y: number, mo: number, dd: number) => {
+    const d = new Date(y, mo - 1, dd);
+    return d.getFullYear() === y && d.getMonth() === mo - 1 && d.getDate() === dd;
+  };
+  const iso = (y: number, mo: number, dd: number) =>
+    `${y}-${String(mo).padStart(2, '0')}-${String(dd).padStart(2, '0')}`;
+  if (valid(year, month, day)) return iso(year, month, day);
+  // Solo si es imposible como día/mes (ej. 03/15/1990) pero válida como mes/día, es inequívocamente mes/día
+  if (allowMDYFallback && valid(year, day, month)) return iso(year, day, month);
+  return '';
+}
+
+/** Fecha de nacimiento embebida en la cédula nicaragüense: 001-DDMMAA-0000X → ISO, o '' si no se puede leer. */
+function birthFromCedula(cedula: string | undefined): string {
+  const m = String(cedula || '').replace(/\s/g, '').match(/^\d{3}-?(\d{2})(\d{2})(\d{2})-?\d{4}[A-Za-z]$/);
+  if (!m) return '';
+  const day = Number(m[1]), month = Number(m[2]), yy = Number(m[3]);
+  const currentYY = new Date().getFullYear() % 100;
+  const year = yy > currentYY ? 1900 + yy : 2000 + yy;
   const d = new Date(year, month - 1, day);
-  // rechaza fechas imposibles (ej. 31/02/2026)
   if (d.getFullYear() !== year || d.getMonth() !== month - 1 || d.getDate() !== day) return '';
   return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+}
+
+/**
+ * Cumpleaños: si la fecha guardada es ambigua (dd/mm vs mm/dd), usa la cédula para decidir.
+ * Si ninguna lectura coincide con la cédula, se queda con día/mes/año.
+ */
+function toBirthdayInputDate(value: string | undefined, cedula: string | undefined): string {
+  const dmy = toInputDate(value);
+  if (!value || /^\d{4}-\d{2}-\d{2}$/.test(String(value).trim())) return dmy;
+  const m = String(value).trim().match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/);
+  if (!m) return dmy;
+  const mdy = toInputDate(`${m[2]}/${m[1]}/${m[3]}`, false); // intercambia día y mes
+  const fromCedula = birthFromCedula(cedula);
+  if (fromCedula && mdy === fromCedula) return mdy;
+  return dmy;
 }
 
 function isoToDisplay(iso: string): string {
@@ -78,7 +112,7 @@ function DateField({ value, onChange }: { value: string; onChange: (iso: string)
 
   // sincroniza cuando el valor externo cambia (al abrir/cambiar de empleado)
   useEffect(() => {
-    setText(prev => (toInputDate(prev) === value ? prev : isoToDisplay(value)));
+    setText(prev => (toInputDate(prev, false) === value ? prev : isoToDisplay(value)));
   }, [value]);
 
   const handle = (raw: string) => {
@@ -88,10 +122,10 @@ function DateField({ value, onChange }: { value: string; onChange: (iso: string)
     else if (digits.length > 2) out = `${digits.slice(0, 2)}/${digits.slice(2)}`;
     setText(out);
     if (digits.length === 0) onChange('');
-    else if (digits.length === 8) onChange(toInputDate(out)); // '' si es inválida
+    else if (digits.length === 8) onChange(toInputDate(out, false)); // '' si es inválida
   };
 
-  const incompleta = text.length > 0 && !toInputDate(text);
+  const incompleta = text.length > 0 && !toInputDate(text, false);
 
   return (
     <input
@@ -177,7 +211,7 @@ export function EmployeeModal({
       estado: employee.estado || 'activo',              
       restaurante: employee.restaurante || 'DF',
       // Normalizar todas las fechas
-      cumpleanos:   toInputDate(employee.cumpleanos),
+      cumpleanos:   toBirthdayInputDate(employee.cumpleanos, employee.cedula),
       fechaIngreso: toInputDate(employee.fechaIngreso),
       fechaEgreso:  toInputDate(employee.fechaEgreso),
       fechaRetiro:  toInputDate(employee.fechaRetiro),        

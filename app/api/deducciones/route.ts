@@ -3,7 +3,7 @@ import {
   DeduccionesConflictError,
   getDeducciones,
   SheetConfigError,
-  upsertDeducciones,
+  upsertDeduccionesConDetalle,
 } from '@/lib/googleSheets';
 import { getPeriodoKey, PAYROLL_CONSTANTS } from '@/lib/payroll-calculations';
 import {
@@ -92,8 +92,8 @@ export async function POST(request: NextRequest) {
 
     const periodo = getPeriodoKey(period.value.year, period.value.month, period.value.fortnight);
     try {
-      const versiones = await upsertDeducciones(periodo, items);
-      return json({ success: true, periodo, guardados: items.length, versiones });
+      const { versiones, fichas, avisos } = await upsertDeduccionesConDetalle(periodo, items);
+      return json({ success: true, periodo, guardados: items.length, versiones, fichas, avisos });
     } catch (error) {
       if (error instanceof DeduccionesConflictError) {
         return json(

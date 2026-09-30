@@ -1,5 +1,6 @@
 import { google, sheets_v4 } from 'googleapis';
-import { calcularTotales, PAYROLL_INPUT_FIELDS, type PayrollInputs } from './payroll-calculations';
+import { calcularTotales, getPeriodoKey, PAYROLL_INPUT_FIELDS, type PayrollInputs } from './payroll-calculations';
+import { parseMoney } from './money';
 import {
   computeInputDiffs,
   LEGACY_VERSION,
@@ -207,10 +208,11 @@ export async function appendRestaurante(nombre: string): Promise<void> {
 // DEDUCCIONES
 //
 // Formato de la hoja (una fila por periodo + cédula; el orden de columnas es
-// POSICIONAL, no reordenarlas; las 3 últimas son de solo lectura/conveniencia,
+// POSICIONAL, no reordenarlas; `totalPagar` y `enlace` son de solo lectura/conveniencia,
 // nunca se leen de vuelta como fuente de verdad):
-//   A periodo | B cedula | C..K campos de PayrollInputs | L actualizadoEn
-//   M nombre | N totalPagar | O enlace
+//   A periodo | B cedula | C nombre | D..L campos de PayrollInputs | M actualizadoEn
+//   N totalPagar | O enlace
+// (Antes `nombre` estaba en la columna M: createOrMigrateDeduccionesSheet mueve la columna sola.)
 // `periodo` = AAAA-MM-first|second (ver getPeriodoKey). `actualizadoEn` = ISO UTC
 // de la última escritura; sirve para detectar ediciones simultáneas. `nombre` y
 // `totalPagar` son una foto del momento del guardado, para poder leer la hoja sin
@@ -219,7 +221,7 @@ export async function appendRestaurante(nombre: string): Promise<void> {
 // ─────────────────────────────────────────────────────────────────────────────
 
 const DEDUCCIONES_COLUMNS = [
-  'periodo', 'cedula', ...PAYROLL_INPUT_FIELDS, 'actualizadoEn', 'nombre', 'totalPagar', 'enlace',
+  'periodo', 'cedula', 'nombre', ...PAYROLL_INPUT_FIELDS, 'actualizadoEn', 'totalPagar', 'enlace',
 ] as const;
 const COLUMN_COUNT = DEDUCCIONES_COLUMNS.length;
 const REQUIRED_NUMERIC: ReadonlySet<string> = new Set(['salarioMensual', 'diasLaborados']);
@@ -266,9 +268,58 @@ async function createOrMigrateDeduccionesSheet(): Promise<number> {
     if (sheetId === null) throw new Error(`No se pudo crear la pestaña "${DEDUCCIONES_SHEET_NAME}"`);
   }
 
-  const headerResponse = await sheets.spreadsheets.values.get({ spreadsheetId, range: HEADER_RANGE });
-  const header = (headerResponse.data.values?.[0] ?? []).map((cell) => String(cell ?? '').trim());
-  const existing = header.filter(Boolean).length;
+  const readHeader = async () => {
+    const response = await sheets.spreadsheets.values.get({ spreadsheetId, range: HEADER_RANGE });
+    return (response.data.values?.[0] ?? []).map((cell) => String(cell ?? '').trim());
+  };
+  let header = await readHeader();
+
+  // Migración del orden de columnas: `nombre` pasa a la columna C.
+  // Formato anterior: C = salarioMensual y `nombre` en la columna M (índice 12) — o sin `nombre` en hojas más viejas.
+  // Es una sola operación de Sheets (mueve encabezado y datos juntos). Antes de desplegar conviene
+  // duplicar la pestaña como respaldo, y abrir la app una vez para que la migración corra una sola vez.
+  if (header[2]?.toLowerCase() === 'salariomensual') {
+    const nombreIndex = header.findIndex((h) => h.toLowerCase() === 'nombre');
+    if (nombreIndex === 12) {
+      await sheets.spreadsheets.batchUpdate({
+        spreadsheetId,
+        requestBody: {
+          requests: [{
+            moveDimension: {
+              source: { sheetId, dimension: 'COLUMNS', startIndex: 12, endIndex: 13 },
+              destinationIndex: 2,
+            },
+          }],
+        },
+      });
+    } else if (nombreIndex === -1) {
+      await sheets.spreadsheets.batchUpdate({
+        spreadsheetId,
+        requestBody: {
+          requests: [{
+            insertDimension: { range: { sheetId, dimension: 'COLUMNS', startIndex: 2, endIndex: 3 }, inheritFromBefore: false },
+          }],
+        },
+      });
+      await sheets.spreadsheets.values.update({
+        spreadsheetId, range: `${DEDUCCIONES_SHEET_NAME}!C1`, valueInputOption: 'RAW', requestBody: { values: [['nombre']] },
+      });
+    } else {
+      throw new SheetConfigError(`La hoja ${DEDUCCIONES_SHEET_NAME} tiene "nombre" en una columna inesperada; revise los encabezados antes de continuar.`);
+    }
+    header = await readHeader();
+  }
+
+  let existing = 0;
+  while (existing < header.length && header[existing]) existing++;
+  // Lectura y escritura son posicionales: si el orden real no coincide, se detiene todo en vez de leer datos corridos.
+  for (let i = 0; i < Math.min(existing, COLUMN_COUNT); i++) {
+    if (header[i].toLowerCase() !== DEDUCCIONES_COLUMNS[i].toLowerCase()) {
+      throw new SheetConfigError(
+        `La hoja ${DEDUCCIONES_SHEET_NAME} tiene "${header[i]}" en la columna ${columnLetter(i + 1)} y se esperaba "${DEDUCCIONES_COLUMNS[i]}". Restaure el orden de columnas.`
+      );
+    }
+  }
 
   if (existing < COLUMN_COUNT) {
     // Solo se escriben los encabezados que faltan; los que ya existen no se tocan.
@@ -508,7 +559,20 @@ function buildRowCells(periodo: string, item: DeduccionSaveItem, version: string
  * - La escritura es una sola batchUpdate: o se aplican todas las filas o ninguna.
  * Devuelve la nueva versión de cada cédula.
  */
+export interface UpsertResult {
+  versiones: Record<string, string>;
+  /** Fichas de empleado cuyo salario se actualizó porque se cambió en la deducción. */
+  fichas: { cedula: string; salario: number }[];
+  avisos: string[];
+}
+
+/** Contrato original: devuelve solo la nueva versión de cada cédula. */
 export function upsertDeducciones(periodo: string, items: DeduccionSaveItem[]): Promise<Record<string, string>> {
+  return upsertDeduccionesConDetalle(periodo, items).then((result) => result.versiones);
+}
+
+/** Igual que upsertDeducciones, pero además informa qué fichas de empleado se actualizaron y los avisos. */
+export function upsertDeduccionesConDetalle(periodo: string, items: DeduccionSaveItem[]): Promise<UpsertResult> {
   return enqueueWrite(async () => {
     const sheetId = await ensureDeduccionesSheet();
     const rows = (await readAllRows()).filter((row) => row.periodo === periodo);
@@ -575,6 +639,140 @@ export function upsertDeducciones(periodo: string, items: DeduccionSaveItem[]): 
       requestBody: { requests },
     });
 
-    return Object.fromEntries(items.map((item) => [item.cedula, version]));
+    const versiones = Object.fromEntries(items.map((item) => [item.cedula, version]));
+    // La deducción ya quedó guardada; sincronizar con la ficha nunca debe hacerla fallar.
+    const { fichas, avisos } = await syncSalariosHaciaFicha(periodo, items, existing);
+    return { versiones, fichas, avisos };
   });
+}
+
+// ── Sincronización de salario ficha ⇄ DEDUCCIONES ───────────────────────────
+//
+// Regla común: solo se sincroniza la quincena VIGENTE en adelante. Los periodos anteriores son
+// planillas ya pagadas y conservan el salario con que se pagaron.
+// El salario solo afecta lo que se deriva de él (básico, vacaciones, valor de la hora extra, INSS, IR y
+// provisiones, que se recalculan). Días, horas, otros ingresos, consumo, préstamo, comida y otros son
+// montos propios de cada fila y NO se modifican.
+
+/** Periodo (quincena) vigente hoy en Nicaragua (UTC-6, sin horario de verano), no en la hora del servidor. */
+function currentPeriodoKeyNicaragua(): string {
+  const local = new Date(Date.now() - 6 * 60 * 60 * 1000);
+  const fortnight = local.getUTCDate() <= 15 ? 'first' : 'second';
+  return getPeriodoKey(local.getUTCFullYear(), local.getUTCMonth() + 1, fortnight);
+}
+
+/** Núcleo (sin cola de escritura: quien lo llama ya está dentro de una). */
+async function applySalarioToDeducciones(
+  sheetId: number, key: string, nombre: string, salario: number,
+): Promise<{ actualizadas: number; periodos: string[] }> {
+  const desde = currentPeriodoKeyNicaragua();
+  // Claves AAAA-MM-first|second: el orden alfabético coincide con el cronológico ('first' < 'second').
+  const seen = new Set<string>();
+  const targets = (await readAllRows()).filter((row) => {
+    if (row.cedula !== key || row.problem || !row.inputs || row.periodo < desde) return false;
+    if (seen.has(row.periodo)) return false; // solo la primera fila de cada periodo (la vigente)
+    seen.add(row.periodo);
+    return row.inputs.salarioMensual !== salario;
+  });
+  if (targets.length === 0) return { actualizadas: 0, periodos: [] };
+
+  const version = new Date().toISOString();
+  const requests: sheets_v4.Schema$Request[] = [];
+  const historialRows: sheets_v4.Schema$RowData[] = [];
+
+  for (const row of targets) {
+    const previous = row.inputs as PayrollInputs;
+    const inputs = { ...previous, salarioMensual: salario };
+    const item: DeduccionSaveItem = { cedula: key, nombre: row.nombre ?? sanitizeNombre(nombre) ?? nombre, inputs, version };
+    requests.push({
+      updateCells: {
+        range: { sheetId, startRowIndex: row.rowNumber - 1, endRowIndex: row.rowNumber, startColumnIndex: 0, endColumnIndex: COLUMN_COUNT },
+        rows: [{ values: buildRowCells(row.periodo, item, version) }],
+        fields: 'userEnteredValue',
+      },
+    });
+    for (const change of computeInputDiffs(previous, inputs)) {
+      historialRows.push(buildHistorialRow(version, row.periodo, item, change));
+    }
+  }
+  if (historialRows.length > 0) {
+    const historialSheetId = await ensureHistorialSheet();
+    requests.push({ appendCells: { sheetId: historialSheetId, rows: historialRows, fields: 'userEnteredValue' } });
+  }
+  await getSheets().spreadsheets.batchUpdate({ spreadsheetId: getSpreadsheetId(), requestBody: { requests } });
+  return { actualizadas: targets.length, periodos: targets.map((row) => row.periodo) };
+}
+
+/** Ficha → DEDUCCIONES. Lo llama PUT /api/empleados/[id] cuando se edita el salario de la ficha. */
+export function syncSalarioEnDeducciones(
+  cedula: string, nombre: string, salario: number,
+): Promise<{ actualizadas: number; periodos: string[] }> {
+  return enqueueWrite(async () => {
+    const key = normalizeCedula(cedula);
+    if (!key || !Number.isFinite(salario) || salario <= 0) return { actualizadas: 0, periodos: [] };
+    const sheetId = await ensureDeduccionesSheet();
+    return applySalarioToDeducciones(sheetId, key, nombre, salario);
+  });
+}
+
+/**
+ * DEDUCCIONES → ficha. Se dispara solo si en ESTE guardado el salario cambió (frente a la fila guardada,
+ * o frente a la ficha si la fila es nueva) y el periodo es el vigente o posterior. Editar una quincena vieja
+ * (p. ej. corregir un consumo) nunca sobrescribe el salario actual de la ficha con uno antiguo.
+ * Luego propaga el nuevo salario a las demás filas vigentes/futuras de esa cédula.
+ */
+async function syncSalariosHaciaFicha(
+  periodo: string,
+  items: DeduccionSaveItem[],
+  existing: Map<string, StoredRow>,
+): Promise<{ fichas: { cedula: string; salario: number }[]; avisos: string[] }> {
+  const fichas: { cedula: string; salario: number }[] = [];
+  const avisos: string[] = [];
+  if (periodo < currentPeriodoKeyNicaragua()) return { fichas, avisos };
+
+  const candidates = items.filter((item) => {
+    const previous = existing.get(item.cedula);
+    const previousSalary = previous && !previous.problem && previous.inputs ? previous.inputs.salarioMensual : null;
+    return item.inputs.salarioMensual > 0 && previousSalary !== item.inputs.salarioMensual;
+  });
+  if (candidates.length === 0) return { fichas, avisos };
+
+  try {
+    const sheets = getSheets();
+    const spreadsheetId = getSpreadsheetId();
+    const response = await sheets.spreadsheets.values.get({
+      spreadsheetId, range: `${SHEET_NAME}!B2:G`, valueRenderOption: 'UNFORMATTED_VALUE', // B = cédula … G = salario
+    });
+    const rows = (response.data.values ?? []) as unknown[][];
+    const rowsByCedula = new Map<string, number[]>();
+    rows.forEach((cells, index) => {
+      const key = normalizeCedula(cells[0]);
+      if (key) rowsByCedula.set(key, [...(rowsByCedula.get(key) ?? []), index]);
+    });
+
+    const data: sheets_v4.Schema$ValueRange[] = [];
+    for (const item of candidates) {
+      const matches = rowsByCedula.get(item.cedula);
+      if (!matches || matches.length !== 1) {
+        avisos.push(`No se actualizó la ficha de ${item.nombre}: ${!matches ? 'no se encontró la cédula' : 'la cédula está repetida'} en la hoja de empleados.`);
+        continue;
+      }
+      const fichaSalary = parseMoney(rows[matches[0]][5]);
+      if (fichaSalary !== null && fichaSalary === item.inputs.salarioMensual) continue;
+      data.push({ range: `${SHEET_NAME}!G${matches[0] + 2}`, values: [[item.inputs.salarioMensual]] });
+      fichas.push({ cedula: item.cedula, salario: item.inputs.salarioMensual });
+    }
+    if (data.length > 0) {
+      await sheets.spreadsheets.values.batchUpdate({ spreadsheetId, requestBody: { valueInputOption: 'RAW', data } });
+      const sheetId = await ensureDeduccionesSheet();
+      for (const ficha of fichas) {
+        const nombre = candidates.find((item) => item.cedula === ficha.cedula)?.nombre ?? '';
+        await applySalarioToDeducciones(sheetId, ficha.cedula, nombre, ficha.salario);
+      }
+    }
+  } catch (error) {
+    console.error('Error sincronizando salario hacia la ficha del empleado:', error);
+    avisos.push('La deducción se guardó, pero no se pudo sincronizar el salario con la ficha del empleado.');
+  }
+  return { fichas, avisos };
 }

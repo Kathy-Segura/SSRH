@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { updateEmpleado, deleteEmpleado } from '@/lib/googleSheets';
+import { updateEmpleado, deleteEmpleado, syncSalarioEnDeducciones } from '@/lib/googleSheets';
+import { parseMoney } from '@/lib/money';
 // src/app/api/empleados/[id]/route.ts
 
 export async function PUT(
@@ -26,6 +27,9 @@ export async function PUT(
       );
     }
 
+    // Salario como número (no como texto) para que la hoja lo guarde como número y las fórmulas funcionen.
+    const salario = parseMoney(body.salario);
+
     const fila = [
       body.nombreCompleto,
       body.cedula,
@@ -33,7 +37,7 @@ export async function PUT(
       body.fechaEgreso      || '',
       body.cargo            || '',
       body.restaurante      || '',
-      body.salario          || '',
+      salario ?? '',
       body.beneficios       || '',
       body.cumpleanos       || '',
       body.direccion        || '',
@@ -54,7 +58,20 @@ export async function PUT(
 
     await updateEmpleado(rowIndex, fila);
 
-    return NextResponse.json({ success: true, message: 'Empleado actualizado correctamente' });
+    // Propaga el salario a las filas ya guardadas en DEDUCCIONES (quincena vigente en adelante).
+    // Si esto falla, la ficha ya quedó guardada: se avisa en la respuesta en vez de mostrar un falso error.
+    let deducciones: { ok: boolean; actualizadas?: number; periodos?: string[]; error?: string } | undefined;
+    if (salario !== null && salario > 0) {
+      try {
+        const sync = await syncSalarioEnDeducciones(String(body.cedula), String(body.nombreCompleto), salario);
+        deducciones = { ok: true, ...sync };
+      } catch (syncError) {
+        console.error('Error sincronizando salario en DEDUCCIONES:', syncError);
+        deducciones = { ok: false, error: 'La ficha se guardó, pero no se pudo actualizar el salario en la hoja DEDUCCIONES.' };
+      }
+    }
+
+    return NextResponse.json({ success: true, message: 'Empleado actualizado correctamente', deducciones });
 
   } catch (error) {
     console.error('Error PUT /api/empleados/[id]:', error);

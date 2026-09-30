@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Employee } from '@/types/employee';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -21,12 +21,14 @@ import {
   getPeriodoKey,
   parseCalendarDate,
   PAYROLL_CONSTANTS,
+  PAYROLL_INPUT_FIELDS,
   PAYROLL_YEAR_WINDOW,
   type Fortnight,
   type PayrollCalculation,
   type PayrollInputs,
   type PeriodEligibility,
 } from '@/lib/payroll-calculations';
+import { parseMoney } from '@/lib/money';
 import {
   FIELD_LABELS,
   inputsToForm,
@@ -80,7 +82,11 @@ type PayrollRow = Employee & {
   inputs: PayrollInputs;
   calculation: PayrollCalculation;
   eligibility: PeriodEligibility;
-  status: 'saved' | 'pending';
+  // saved = igual a la hoja · pending = aún sin fila en la hoja · draft = cambios locales sin guardar
+  // conflict = hay borrador, pero la hoja/ficha cambió los mismos campos después de crearlo
+  status: 'saved' | 'pending' | 'draft' | 'conflict';
+  /** Valores de la hoja (o los predeterminados de la ficha si aún no hay fila): base sobre la que se hacen los borradores. */
+  baseInputs: PayrollInputs;
   version: string | null;
   issues: string[];
   warnings: string[];
@@ -90,10 +96,58 @@ type Notice = { kind: 'success' | 'error' | 'warning'; text: string; canReload?:
 type SaveTarget = { cedulaKey: string; inputs: PayrollInputs; version: string | null; nombre: string };
 type SaveOutcome = { ok: true } | { ok: false; message: string };
 
+// ── Borradores: cambios sin guardar que se conservan (por periodo) en este navegador hasta guardarse ──
+type Draft = { inputs: PayrollInputs; base: PayrollInputs };
+type DraftState = { periodKey: string; items: Record<string, Draft> };
+const EMPTY_DRAFTS: Record<string, Draft> = {};
+const draftsStorageKey = (periodKey: string) => `payroll-drafts:v1:${periodKey}`;
+
+function loadDrafts(periodKey: string): Record<string, Draft> {
+  try {
+    const raw = window.localStorage.getItem(draftsStorageKey(periodKey));
+    const parsed = raw ? JSON.parse(raw) : {};
+    const items: Record<string, Draft> = {};
+    Object.entries(parsed as Record<string, Draft>).forEach(([key, value]) => {
+      const valid = (inputs: unknown) => !!inputs && PAYROLL_INPUT_FIELDS.every((field) => Number.isFinite((inputs as PayrollInputs)[field]));
+      if (valid(value?.inputs) && valid(value?.base)) items[key] = value;
+    });
+    return items;
+  } catch { return {}; }
+}
+function storeDrafts(periodKey: string, items: Record<string, Draft>) {
+  try {
+    if (Object.keys(items).length === 0) window.localStorage.removeItem(draftsStorageKey(periodKey));
+    else window.localStorage.setItem(draftsStorageKey(periodKey), JSON.stringify(items));
+  } catch { /* almacenamiento no disponible: los borradores viven solo mientras la pestaña esté abierta */ }
+}
+
+const changedFields = (a: PayrollInputs, b: PayrollInputs) => PAYROLL_INPUT_FIELDS.filter((field) => a[field] !== b[field]);
+
+/**
+ * Combina un borrador con la base actual (hoja o ficha), campo por campo:
+ * - si la base no cambió desde el borrador → el borrador tal cual;
+ * - si cambió solo en campos que el usuario no tocó (p. ej. el salario, actualizado desde Empleados) → se aplican
+ *   esos cambios sobre el borrador, conservando lo editado;
+ * - si cambió un campo que el usuario también editó (a otro valor) → conflicto.
+ */
+function reconcileDraft(draft: Draft, base: PayrollInputs): { inputs: PayrollInputs; conflict: boolean } {
+  const theirs = changedFields(draft.base, base);
+  if (theirs.length === 0) return { inputs: draft.inputs, conflict: false };
+  const mine = changedFields(draft.base, draft.inputs);
+  if (mine.some((field) => theirs.includes(field) && draft.inputs[field] !== base[field])) return { inputs: draft.inputs, conflict: true };
+  const merged: PayrollInputs = { ...base };
+  mine.forEach((field) => { merged[field] = draft.inputs[field]; });
+  return { inputs: merged, conflict: false };
+}
+
 const isBlocked = (row: PayrollRow) => row.issues.length > 0 || Object.keys(row.fieldErrors).length > 0;
 const toTarget = (row: PayrollRow): SaveTarget => ({ cedulaKey: row.cedulaKey, inputs: row.inputs, version: row.version, nombre: row.nombreCompleto });
 
-export function PayrollModule({ employees }: { employees: Employee[] }) {
+export function PayrollModule({ employees, onEmployeesChanged }: {
+  employees: Employee[];
+  /** Opcional: se llama cuando guardar una deducción actualizó el salario en la ficha, para que la página recargue empleados. */
+  onEmployeesChanged?: () => void;
+}) {
   const [mode, setMode] = useState<'table' | 'totals'>('table');
   const [restaurant, setRestaurant] = useState('Todos');
   const [month, setMonth] = useState(() => String(new Date().getMonth() + 1));
@@ -108,6 +162,11 @@ export function PayrollModule({ employees }: { employees: Employee[] }) {
   const [notice, setNotice] = useState<Notice>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [reloadToken, setReloadToken] = useState(0);
+  const [draftState, setDraftState] = useState<DraftState>({ periodKey: '', items: {} });
+  // Salarios de ficha ya actualizados desde esta pantalla, mientras la página no recargue la lista de empleados.
+  const [fichaOverrides, setFichaOverrides] = useState<Record<string, number>>({});
+  const previousSalaries = useRef<Map<string, string> | null>(null);
+  const skipEmployeeSync = useRef(false);
 
   const yearNumber = Number(year);
   const monthNumber = Number(month);
@@ -169,6 +228,27 @@ export function PayrollModule({ employees }: { employees: Employee[] }) {
     return () => clearTimeout(timer);
   }, [notice]);
 
+  // ── Borradores: se cargan al cambiar de periodo y se guardan en este navegador con cada cambio ──
+  useEffect(() => { setDraftState({ periodKey, items: loadDrafts(periodKey) }); }, [periodKey]);
+  useEffect(() => { if (draftState.periodKey) storeDrafts(draftState.periodKey, draftState.items); }, [draftState]);
+  const drafts = draftState.periodKey === periodKey ? draftState.items : EMPTY_DRAFTS;
+
+  // ── Si cambia el salario de alguna ficha (editado en el módulo Empleados), recargar el periodo ──
+  // La API ya actualizó las filas guardadas de la hoja DEDUCCIONES; recargar trae esos salarios y sus nuevas versiones.
+  useEffect(() => {
+    const current = new Map(employees.map((employee) => [normalizeCedula(employee.cedula), String(employee.salario ?? '')] as const));
+    const previous = previousSalaries.current;
+    previousSalaries.current = current;
+    setFichaOverrides({});
+    if (!previous) return;
+    if (skipEmployeeSync.current) { skipEmployeeSync.current = false; return; }
+    const changed = [...current].filter(([key, value]) => previous.has(key) && previous.get(key) !== value);
+    if (changed.length > 0) {
+      setNotice({ kind: 'success', text: `Se actualizó el salario de ${changed.length} empleado(s) desde Empleados; se recargó el periodo.` });
+      setReloadToken((token) => token + 1);
+    }
+  }, [employees]);
+
   // ── Empleados que corresponde pagar en el periodo ──
   const eligible = useMemo(() => {
     const cedulaCount = new Map<string, number>();
@@ -183,8 +263,8 @@ export function PayrollModule({ employees }: { employees: Employee[] }) {
       const ingreso = parseCalendarDate(ingresoRaw);
       const egreso = parseCalendarDate(egresoRaw);
 
-      // Un empleado inactivo solo se paga si su salida cae dentro o después del periodo.
-      if (employee.estado !== 'activo' && !egreso) return [];
+      // Un empleado inactivo no aparece en Deducciones (ni en la tabla, ni en totales, ni en prorrateados).
+      if (normalizeText(employee.estado || 'activo') === 'INACTIVO') return [];
       const eligibility = getEmployeeDaysInPeriod(ingreso, egreso, yearNumber, monthNumber, fortnight);
       if (eligibility.status === 'outside') return [];
 
@@ -200,13 +280,22 @@ export function PayrollModule({ employees }: { employees: Employee[] }) {
 
   const allRows: PayrollRow[] = useMemo(() => eligible.map(({ employee, eligibility, issues, cedulaKey }) => {
     const record = sheetReady ? sheet.byCedula[cedulaKey] : undefined;
-    const fichaSalary = Number(employee.salario);
+    // parseMoney tolera "C$ 12,000.00"; Number("C$ 12,000.00") daba NaN y el salario quedaba en 0.
+    const fichaSalary = parseMoney(fichaOverrides[cedulaKey] ?? employee.salario);
     const defaults: PayrollInputs = {
-      salarioMensual: Number.isFinite(fichaSalary) && fichaSalary > 0 ? fichaSalary : 0,
+      salarioMensual: fichaSalary !== null && fichaSalary > 0 ? fichaSalary : 0,
       diasLaborados: eligibility.days,
       diasVacaciones: 0, horasExtra: 0, otrosIngresos: 0, consumo: 0, prestamo: 0, greceComida: 0, otros: 0,
     };
-    const inputs = record?.inputs ?? defaults;
+    const baseInputs = record?.inputs ?? defaults;
+    let inputs = baseInputs;
+    let hasDraft = false;
+    let conflict = false;
+    const draft = sheetReady ? drafts[cedulaKey] : undefined;
+    if (draft) {
+      const reconciled = reconcileDraft(draft, baseInputs);
+      if (changedFields(reconciled.inputs, baseInputs).length > 0) { inputs = reconciled.inputs; hasDraft = true; conflict = reconciled.conflict; }
+    }
     const warnings: string[] = [];
     if (record) {
       const diasPagados = record.inputs.diasLaborados + record.inputs.diasVacaciones;
@@ -215,19 +304,21 @@ export function PayrollModule({ employees }: { employees: Employee[] }) {
         warnings.push(`Salario guardado distinto al de la ficha (${formatCurrency(defaults.salarioMensual)})`);
       }
     }
+    if (conflict) warnings.push('El borrador choca con cambios más recientes en la hoja o la ficha. Revíselo o descártelo.');
     return {
       ...employee,
       cedulaKey,
       inputs,
+      baseInputs,
       calculation: calcularTotales(inputs),
       eligibility,
-      status: record ? 'saved' : 'pending',
+      status: conflict ? 'conflict' : hasDraft ? 'draft' : record ? 'saved' : 'pending',
       version: record?.version ?? null,
       issues,
       warnings,
       fieldErrors: validatePayrollInputs(inputs, eligibility.days),
     };
-  }), [eligible, sheet, sheetReady]);
+  }), [eligible, sheet, sheetReady, drafts, fichaOverrides]);
 
   const rows = useMemo(() => allRows.filter((row) => {
     const matchesRestaurant = restaurant === 'Todos' || normalizeText(row.restaurante) === normalizeText(restaurant);
@@ -238,7 +329,16 @@ export function PayrollModule({ employees }: { employees: Employee[] }) {
 
   const proratedCount = rows.filter((row) => row.eligibility.status === 'partial').length;
   const blockedCount = rows.filter(isBlocked).length;
-  const pendingCount = rows.filter((row) => row.status === 'pending').length;
+  const isUnsaved = (row: PayrollRow) => row.status === 'pending' || row.status === 'draft';
+  const unsavedCount = rows.filter(isUnsaved).length;
+  const draftCount = allRows.filter((row) => row.status === 'draft' || row.status === 'conflict').length;
+  const conflictCount = allRows.filter((row) => row.status === 'conflict').length;
+  // Sin guardar por restaurante (toda la planilla del periodo, sin importar el filtro actual).
+  const unsavedByRestaurant = Object.entries(allRows.filter(isUnsaved).reduce<Record<string, number>>((acc, row) => {
+    const name = row.restaurante || 'Sin restaurante';
+    acc[name] = (acc[name] ?? 0) + 1;
+    return acc;
+  }, {})).sort((a, b) => a[0].localeCompare(b[0]));
   const orphanCount = sheetReady
     ? Object.keys(sheet.byCedula).filter((cedula) => !allRows.some((row) => row.cedulaKey === cedula)).length
     : 0;
@@ -311,7 +411,25 @@ export function PayrollModule({ employees }: { employees: Employee[] }) {
         });
         return { ...current, byCedula };
       });
-      setNotice({ kind: 'success', text: `Se guardaron ${targets.length} registro(s) en la hoja DEDUCCIONES (${savedPeriodKey}).` });
+      // Lo guardado deja de ser borrador (lo no guardado, por ejemplo tras un error, se conserva).
+      setDraftState((current) => {
+        if (current.periodKey !== savedPeriodKey) return current;
+        const items = { ...current.items };
+        targets.forEach((target) => { delete items[target.cedulaKey]; });
+        return { ...current, items };
+      });
+      // Si se cambió el salario, la API ya lo actualizó también en la ficha del empleado.
+      const fichas: { cedula: string; salario: number }[] = Array.isArray(data.fichas) ? data.fichas : [];
+      const avisos: string[] = Array.isArray(data.avisos) ? data.avisos : [];
+      if (fichas.length > 0) {
+        setFichaOverrides((current) => ({ ...current, ...Object.fromEntries(fichas.map((ficha) => [ficha.cedula, ficha.salario])) }));
+        if (onEmployeesChanged) { skipEmployeeSync.current = true; onEmployeesChanged(); }
+      }
+      const extra = [
+        fichas.length > 0 ? `Salario actualizado también en la ficha de ${fichas.length} empleado(s).` : '',
+        ...avisos,
+      ].filter(Boolean).join(' ');
+      setNotice({ kind: avisos.length > 0 ? 'warning' : 'success', text: `Se guardaron ${targets.length} registro(s) en la hoja DEDUCCIONES (${savedPeriodKey}). ${extra}`.trim() });
       return { ok: true };
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Error de red al guardar';
@@ -322,19 +440,47 @@ export function PayrollModule({ employees }: { employees: Employee[] }) {
     }
   };
 
+  // Guardado masivo: todo lo mostrado (según el filtro de restaurante) que esté pendiente o en borrador.
   const handleGuardarPeriodo = async () => {
-    const pending = rows.filter((row) => row.status === 'pending');
-    if (pending.length === 0) {
-      setNotice({ kind: 'success', text: 'No hay registros pendientes: todo lo mostrado ya está guardado.' });
+    const unsaved = rows.filter(isUnsaved);
+    const scope = restaurant === 'Todos' ? 'todos los restaurantes' : restaurant;
+    const skippedConflicts = rows.filter((row) => row.status === 'conflict').length;
+    if (unsaved.length === 0) {
+      setNotice({ kind: skippedConflicts > 0 ? 'error' : 'success', text: skippedConflicts > 0
+        ? `${skippedConflicts} registro(s) con conflicto no se guardan en bloque: ábralos con "Ver" y resuélvalos.`
+        : `No hay cambios sin guardar en ${scope}.` });
       return;
     }
-    const blocked = pending.filter(isBlocked);
+    const blocked = unsaved.filter(isBlocked);
     if (blocked.length > 0) {
       const names = blocked.slice(0, 3).map((row) => row.nombreCompleto).join(', ');
       setNotice({ kind: 'error', text: `No se guardó nada: corrija ${blocked.length} empleado(s) con errores (${names}${blocked.length > 3 ? '…' : ''}). Ábralos con "Ver".` });
       return;
     }
-    await persistRows(pending.map(toTarget));
+    const outcome = await persistRows(unsaved.map(toTarget));
+    if (outcome.ok && skippedConflicts > 0) {
+      setNotice({ kind: 'warning', text: `Se guardaron ${unsaved.length} registro(s) de ${scope}. ${skippedConflicts} con conflicto quedaron sin guardar.` });
+    }
+  };
+
+  // ── Borradores ──
+  const saveDraft = (row: PayrollRow, values: PayrollInputs) => {
+    setDraftState((current) => {
+      const items = { ...(current.periodKey === periodKey ? current.items : {}) };
+      if (sameInputs(values, row.baseInputs)) delete items[row.cedulaKey];
+      else items[row.cedulaKey] = { inputs: values, base: row.baseInputs };
+      return { periodKey, items };
+    });
+  };
+  const discardDraft = (cedulaKey: string) => setDraftState((current) => {
+    if (current.periodKey !== periodKey) return current;
+    const items = { ...current.items };
+    delete items[cedulaKey];
+    return { ...current, items };
+  });
+  const discardAllDrafts = () => {
+    if (!window.confirm(`¿Descartar los ${draftCount} borrador(es) de este periodo? Se perderán los cambios sin guardar.`)) return;
+    setDraftState({ periodKey, items: {} });
   };
 
   const noticeStyles: Record<NonNullable<Notice>['kind'], string> = {
@@ -349,11 +495,14 @@ export function PayrollModule({ employees }: { employees: Employee[] }) {
         <div className="flex items-center gap-2"><Wallet className="h-6 w-6 text-[#007EA7]" /><h1 className="text-2xl font-semibold tracking-tight">Deducciones de Nómina</h1></div>
         <p className="mt-1 text-sm text-muted-foreground">Calcula, revisa y guarda la planilla por quincena.</p>
       </div>
-      <div className="flex gap-2">
-        <Button variant="outline" className="gap-2" onClick={() => window.print()}><Printer className="h-4 w-4" />Imprimir</Button>
-        <Button className="gap-2 bg-[#80CED7] text-black hover:bg-[#007EA7]" disabled={isSaving || !sheetReady || pendingCount === 0} onClick={handleGuardarPeriodo}>
-          <Save className="h-4 w-4" />{isSaving ? 'Guardando...' : `Guardar pendientes (${pendingCount})`}
-        </Button>
+      <div className="flex flex-col items-start gap-1 md:items-end">
+        <div className="flex gap-2">
+          <Button variant="outline" className="gap-2" onClick={() => window.print()}><Printer className="h-4 w-4" />Imprimir</Button>
+          <Button className="gap-2 bg-[#80CED7] text-black hover:bg-[#007EA7]" disabled={isSaving || !sheetReady || unsavedCount === 0} onClick={handleGuardarPeriodo}>
+            <Save className="h-4 w-4" />{isSaving ? 'Guardando...' : `Guardar cambios (${unsavedCount})`}
+          </Button>
+        </div>
+        <p className="text-xs text-muted-foreground">Guarda todo lo mostrado ({restaurant === 'Todos' ? 'todos los restaurantes' : restaurant}). También puede guardar cada empleado con "Ver".</p>
       </div>
     </div>
 
@@ -371,6 +520,15 @@ export function PayrollModule({ employees }: { employees: Employee[] }) {
       <ul className="mt-1 list-disc pl-5">{sheet.warnings.slice(0, 5).map((text) => <li key={text}>{text}</li>)}</ul>
     </div>}
     {orphanCount > 0 && <div className={cn('rounded-lg border px-4 py-3 text-sm', noticeStyles.warning)}>Hay {orphanCount} registro(s) guardado(s) en la hoja que no corresponden a ningún empleado pagable en este periodo (no se incluyen en los totales).</div>}
+    {sheetReady && draftCount > 0 && <div className={cn('flex flex-wrap items-center justify-between gap-3 rounded-lg border px-4 py-3 text-sm', noticeStyles.warning)}>
+      <span>Tiene {draftCount} registro(s) con cambios sin guardar{conflictCount > 0 ? ` (${conflictCount} con conflicto)` : ''}. Se conservan en este navegador aunque cierre la ventana o recargue; envíelos con “Guardar cambios”.</span>
+      <Button size="sm" variant="outline" onClick={discardAllDrafts}>Descartar borradores</Button>
+    </div>}
+    {sheetReady && unsavedByRestaurant.length > 0 && <div className="flex flex-wrap items-center gap-2 text-sm">
+      <span className="text-muted-foreground">Sin guardar por restaurante:</span>
+      {unsavedByRestaurant.map(([name, count]) => <Button key={name} size="sm" variant="outline" className="h-7 gap-1 px-2 text-xs"
+        onClick={() => setRestaurant(restaurantes.find((item) => normalizeText(item) === normalizeText(name)) ?? name)}>{name}<Badge variant="secondary">{count}</Badge></Button>)}
+    </div>}
     {proratedCount > 0 && <div className={cn('rounded-lg border px-4 py-3 text-sm', noticeStyles.warning)}>Hay {proratedCount} empleado(s) con días prorrateados por fecha de ingreso o egreso. Revise el detalle antes de guardar.</div>}
     {blockedCount > 0 && <div className={cn('rounded-lg border px-4 py-3 text-sm', noticeStyles.error)}>{blockedCount} empleado(s) tienen datos por corregir antes de poder guardarse (marcados como “Revisar”).</div>}
 
@@ -429,6 +587,8 @@ export function PayrollModule({ employees }: { employees: Employee[] }) {
                 <td className="px-4 py-3">
                   {!sheetReady ? <Badge variant="outline">…</Badge>
                     : isBlocked(row) ? <Badge variant="destructive" title={[...row.issues, ...Object.values(row.fieldErrors)].join(' · ')}>Revisar</Badge>
+                    : row.status === 'conflict' ? <Badge variant="destructive" title={row.warnings.join(' · ')}>Conflicto</Badge>
+                    : row.status === 'draft' ? <Badge variant="outline" className="border-amber-400 bg-amber-50 text-amber-900" title="Cambios sin guardar">Borrador</Badge>
                     : row.status === 'saved' ? <Badge variant="secondary" title={row.warnings.join(' · ')}>Guardado{row.warnings.length > 0 ? ' ⚠' : ''}</Badge>
                     : <Badge variant="outline">Pendiente</Badge>}
                 </td>
@@ -475,7 +635,7 @@ export function PayrollModule({ employees }: { employees: Employee[] }) {
       <DialogContent className="max-h-[90vh] w-[95vw] max-w-[95vw] overflow-y-auto sm:max-w-5xl">
         <DialogHeader>
           <DialogTitle className="text-xl text-[#007EA7]">Detalle del empleado</DialogTitle>
-          <DialogDescription>Ingresos, extras y deducciones del periodo {periodKey}. Los cambios se guardan al presionar “Guardar”.</DialogDescription>
+          <DialogDescription>Ingresos, extras y deducciones del periodo {periodKey}. Use “Guardar” para enviar este empleado a la hoja, o “Dejar en borrador” para guardarlo después junto con los demás.</DialogDescription>
         </DialogHeader>
         {selected
           ? <PayrollDetail
@@ -484,6 +644,12 @@ export function PayrollModule({ employees }: { employees: Employee[] }) {
               canPersist={sheetReady && !isSaving}
               isSaving={isSaving}
               onSave={(values) => persistRows([{ cedulaKey: selected.cedulaKey, inputs: values, version: selected.version, nombre: selected.nombreCompleto }])}
+              onSaveDraft={(values) => {
+                saveDraft(selected, values);
+                setDetailOpen(false);
+                setNotice({ kind: 'success', text: `Borrador de ${selected.nombreCompleto} conservado. Se enviará con “Guardar cambios”.` });
+              }}
+              onDiscardDraft={() => { discardDraft(selected.cedulaKey); setDetailOpen(false); }}
               onReload={reloadPeriod}
               onClose={() => setDetailOpen(false)}
             />
@@ -506,11 +672,13 @@ function NumberField({ label, prefix, value, error, onChange }: {
   </div>;
 }
 
-function PayrollDetail({ row, canPersist, isSaving, onSave, onReload, onClose }: {
+function PayrollDetail({ row, canPersist, isSaving, onSave, onSaveDraft, onDiscardDraft, onReload, onClose }: {
   row: PayrollRow;
   canPersist: boolean;
   isSaving: boolean;
   onSave: (values: PayrollInputs) => Promise<SaveOutcome>;
+  onSaveDraft: (values: PayrollInputs) => void;
+  onDiscardDraft: () => void;
   onReload: () => void;
   onClose: () => void;
 }) {
@@ -521,8 +689,12 @@ function PayrollDetail({ row, canPersist, isSaving, onSave, onReload, onClose }:
   const maxDays = row.eligibility.days;
   const parsed = useMemo(() => parseFormValues(form, maxDays), [form, maxDays]);
   const c = parsed.values ? calcularTotales(parsed.values) : null;
+  // dirty = distinto a lo que se muestra; changedVsBase = distinto a lo guardado en la hoja (o a los valores por defecto)
   const dirty = parsed.values ? !sameInputs(parsed.values, row.inputs) : true;
-  const canSave = !!parsed.values && canPersist && row.issues.length === 0 && (dirty || row.status === 'pending');
+  const changedVsBase = parsed.values ? !sameInputs(parsed.values, row.baseInputs) : true;
+  const hasDraft = row.status === 'draft' || row.status === 'conflict';
+  const canSave = !!parsed.values && canPersist && row.issues.length === 0 && (row.status !== 'saved' || changedVsBase);
+  const canDraft = !!parsed.values && row.issues.length === 0 && (dirty || row.status === 'conflict');
 
   const setField = (field: PayrollField, value: string) => {
     setFeedback(null);
@@ -557,7 +729,7 @@ function PayrollDetail({ row, canPersist, isSaving, onSave, onReload, onClose }:
 
     <p className="text-sm text-muted-foreground">
       Corresponden <strong>{maxDays}</strong> de {PAYROLL_CONSTANTS.fortnightDays} días en esta quincena{row.eligibility.reason ? ` (${row.eligibility.reason.toLowerCase()})` : ''}.
-      {' '}{row.status === 'saved' ? 'Datos leídos de la hoja; puede modificarlos y guardar.' : 'Aún no hay datos guardados para este periodo.'}
+      {' '}{row.status === 'saved' ? 'Datos leídos de la hoja; puede modificarlos y guardar.' : hasDraft ? 'Hay cambios en borrador, todavía no guardados en la hoja.' : 'Aún no hay datos guardados para este periodo.'}
     </p>
 
     {row.issues.length > 0 && <div className="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700">{row.issues.join(' · ')}. Corrija la ficha del empleado para poder guardar.</div>}
@@ -617,7 +789,9 @@ function PayrollDetail({ row, canPersist, isSaving, onSave, onReload, onClose }:
     <div className="flex flex-col-reverse gap-2 border-t pt-4 sm:flex-row sm:justify-between">
       <Button variant="outline" className="gap-2" onClick={handleClear} disabled={isSaving}><Eraser className="h-4 w-4" />Limpiar extras y deducciones</Button>
       <div className="flex flex-col-reverse gap-2 sm:flex-row">
+        {hasDraft && <Button variant="ghost" disabled={isSaving} onClick={onDiscardDraft}>Descartar borrador</Button>}
         <Button variant="ghost" onClick={onClose}>Cerrar</Button>
+        <Button variant="outline" disabled={!canDraft || isSaving} onClick={() => parsed.values && onSaveDraft(parsed.values)}>Dejar en borrador</Button>
         <Button className="gap-2 bg-[#80CED7] text-black hover:bg-[#007EA7] hover:text-white" disabled={!canSave} onClick={handleSave}>
           <Save className="h-4 w-4" />{isSaving ? 'Guardando...' : 'Guardar'}
         </Button>
