@@ -210,8 +210,8 @@ export async function appendRestaurante(nombre: string): Promise<void> {
 // Formato de la hoja (una fila por periodo + cédula; el orden de columnas es
 // POSICIONAL, no reordenarlas; `totalPagar` y `enlace` son de solo lectura/conveniencia,
 // nunca se leen de vuelta como fuente de verdad):
-//   A periodo | B cedula | C nombre | D..L campos de PayrollInputs | M actualizadoEn
-//   N totalPagar | O enlace
+//   A periodo | B cedula | C nombre | D..L campos de PayrollInputs | M totalPagar
+//   N actualizadoEn | O enlace | P aplicaIR (1 = retiene IR; vacío/0 = solo INSS)
 // (Antes `nombre` estaba en la columna M: createOrMigrateDeduccionesSheet mueve la columna sola.)
 // `periodo` = AAAA-MM-first|second (ver getPeriodoKey). `actualizadoEn` = ISO UTC
 // de la última escritura; sirve para detectar ediciones simultáneas. `nombre` y
@@ -221,7 +221,7 @@ export async function appendRestaurante(nombre: string): Promise<void> {
 // ─────────────────────────────────────────────────────────────────────────────
 
 const DEDUCCIONES_COLUMNS = [
-  'periodo', 'cedula', 'nombre', ...PAYROLL_INPUT_FIELDS, 'actualizadoEn', 'totalPagar', 'enlace',
+  'periodo', 'cedula', 'nombre', ...PAYROLL_INPUT_FIELDS, 'totalPagar', 'actualizadoEn', 'enlace', 'aplicaIR',
 ] as const;
 const COLUMN_COUNT = DEDUCCIONES_COLUMNS.length;
 const REQUIRED_NUMERIC: ReadonlySet<string> = new Set(['salarioMensual', 'diasLaborados']);
@@ -306,6 +306,40 @@ async function createOrMigrateDeduccionesSheet(): Promise<number> {
       });
     } else {
       throw new SheetConfigError(`La hoja ${DEDUCCIONES_SHEET_NAME} tiene "nombre" en una columna inesperada; revise los encabezados antes de continuar.`);
+    }
+    header = await readHeader();
+  }
+
+  // Migración 2: `totalPagar` pasa a la columna M y `actualizadoEn` a la N (antes al revés).
+  // Con 'totalPagar' en N se mueve esa columna; si la hoja aún no la tiene, se inserta vacía en M
+  // (las filas viejas la llenan la próxima vez que se guarden; es solo una foto informativa).
+  if (header[12]?.toLowerCase() === 'actualizadoen') {
+    if (header[13]?.toLowerCase() === 'totalpagar') {
+      await sheets.spreadsheets.batchUpdate({
+        spreadsheetId,
+        requestBody: {
+          requests: [{
+            moveDimension: {
+              source: { sheetId, dimension: 'COLUMNS', startIndex: 13, endIndex: 14 },
+              destinationIndex: 12,
+            },
+          }],
+        },
+      });
+    } else if (!header[13]) {
+      await sheets.spreadsheets.batchUpdate({
+        spreadsheetId,
+        requestBody: {
+          requests: [{
+            insertDimension: { range: { sheetId, dimension: 'COLUMNS', startIndex: 12, endIndex: 13 }, inheritFromBefore: false },
+          }],
+        },
+      });
+      await sheets.spreadsheets.values.update({
+        spreadsheetId, range: `${DEDUCCIONES_SHEET_NAME}!M1`, valueInputOption: 'RAW', requestBody: { values: [['totalPagar']] },
+      });
+    } else {
+      throw new SheetConfigError(`La hoja ${DEDUCCIONES_SHEET_NAME} tiene "${header[13]}" en la columna N y se esperaba "totalPagar" o una columna vacía.`);
     }
     header = await readHeader();
   }
@@ -474,6 +508,8 @@ function parseStoredRow(cells: unknown[], rowNumber: number): StoredRow {
       values[field] = parsed;
     }
   }
+  // Columna P: solo un 1 explícito activa el IR (filas anteriores a esta columna quedan sin IR).
+  values.aplicaIR = readNumericCell(cellAt('aplicaIR')) === 1;
   return { ...base, inputs: values as PayrollInputs, problem: null };
 }
 
@@ -543,6 +579,7 @@ function buildRowCells(periodo: string, item: DeduccionSaveItem, version: string
     if (column === 'actualizadoEn') return cell(version);
     if (column === 'nombre') return cell(item.nombre);
     if (column === 'totalPagar') return cell(calcularTotales(item.inputs).netoPagar);
+    if (column === 'aplicaIR') return cell(item.inputs.aplicaIR ? 1 : 0);
     if (column === 'enlace') {
       if (!linkBase) return cell('');
       const url = `${linkBase}/?empleado=${encodeURIComponent(item.cedula)}`;

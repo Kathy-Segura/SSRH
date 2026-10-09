@@ -41,6 +41,12 @@ export interface PayrollInputs {
   prestamo: number;
   greceComida: number;
   otros: number;
+  /**
+   * Retención de IR laboral. Por defecto NO se aplica (undefined = false): la planilla deduce solo el INSS.
+   * Se activa por empleado/quincena. No forma parte de PAYROLL_INPUT_FIELDS (no es numérico); en la hoja
+   * vive en la columna P para no mover `totalPagar` (M).
+   */
+  aplicaIR?: boolean;
 }
 
 // Orden canónico de los campos editables (formulario, validación y hoja).
@@ -131,7 +137,7 @@ export function calcularTotales(inputs: PayrollInputs, ceiling = PAYROLL_CONSTAN
   // El INSS laboral se calcula una sola vez sobre el total devengado (con tope).
   const inssLaboral = calcularINSSLaboral(totalDevengado, ceiling);
   const baseImponible = money(totalDevengado - inssLaboral);
-  const irLaboral = calcularIR(baseImponible);
+  const irLaboral = inputs.aplicaIR === true ? calcularIR(baseImponible) : 0;
 
   const otrasDeducciones = money(inputs.consumo + inputs.prestamo + inputs.greceComida + inputs.otros);
   const totalDeducciones = money(inssLaboral + irLaboral + otrasDeducciones);

@@ -1,4 +1,5 @@
 import {
+  PAYROLL_CONSTANTS,
   calcularTotales,
   getAllowedYearRange,
   isFortnight,
@@ -51,7 +52,7 @@ export function inputsToForm(inputs: PayrollInputs): FormValues {
 }
 
 export function sameInputs(a: PayrollInputs, b: PayrollInputs): boolean {
-  return PAYROLL_INPUT_FIELDS.every((field) => a[field] === b[field]);
+  return PAYROLL_INPUT_FIELDS.every((field) => a[field] === b[field]) && !!a.aplicaIR === !!b.aplicaIR;
 }
 
 /**
@@ -72,9 +73,13 @@ export function validatePayrollInputs(inputs: PayrollInputs, maxDays: number): F
 
   if (inputs.salarioMensual <= 0) errors.salarioMensual = 'Debe ser mayor que cero';
 
-  const diasTotales = inputs.diasLaborados + inputs.diasVacaciones;
-  if (diasTotales > maxDays) {
-    errors.diasLaborados = `Laborados + vacaciones (${diasTotales}) superan los ${maxDays} días que corresponden a esta quincena`;
+  // Los días laborados se topan por la quincena (o por ingreso/egreso). Las vacaciones pagadas NO se suman a ese tope:
+  // pueden liquidarse completas (p. ej. en efectivo) aunque superen los 15 días de la quincena; el máximo es un mes comercial.
+  if (inputs.diasLaborados > maxDays) {
+    errors.diasLaborados = `Los días laborados (${inputs.diasLaborados}) superan los ${maxDays} que corresponden a esta quincena`;
+  }
+  if (inputs.diasVacaciones > PAYROLL_CONSTANTS.commercialMonthDays) {
+    errors.diasVacaciones = `Máximo ${PAYROLL_CONSTANTS.commercialMonthDays} días de vacaciones`;
   }
   if (Object.keys(errors).length > 0) return errors;
 
@@ -88,7 +93,8 @@ export function validatePayrollInputs(inputs: PayrollInputs, maxDays: number): F
 /** Convierte el texto del formulario a números y aplica todas las validaciones. */
 export function parseFormValues(
   form: FormValues,
-  maxDays: number
+  maxDays: number,
+  aplicaIR = false
 ): { values: PayrollInputs | null; errors: FieldErrors } {
   const errors: FieldErrors = {};
   const parsed: Partial<PayrollInputs> = {};
@@ -106,7 +112,7 @@ export function parseFormValues(
   }
   if (Object.keys(errors).length > 0) return { values: null, errors };
 
-  const values = parsed as PayrollInputs;
+  const values = { ...(parsed as PayrollInputs), aplicaIR };
   const fieldErrors = validatePayrollInputs(values, maxDays);
   return Object.keys(fieldErrors).length > 0 ? { values: null, errors: fieldErrors } : { values, errors: {} };
 }
@@ -121,6 +127,9 @@ export function coercePayrollInputs(raw: unknown): PayrollInputs | null {
     if (typeof value !== 'number' || !Number.isFinite(value)) return null;
     result[field] = value;
   }
+  // Opcional por compatibilidad con clientes anteriores: si no viene, el IR no se aplica.
+  if (source.aplicaIR !== undefined && typeof source.aplicaIR !== 'boolean') return null;
+  result.aplicaIR = source.aplicaIR === true;
   return result as PayrollInputs;
 }
 
@@ -181,7 +190,7 @@ export interface DeduccionProblem {
 // ── Historial de cambios (para auditar, p. ej., ajustes de vacaciones en el año) ──
 
 export interface FieldChange {
-  campo: PayrollField;
+  campo: PayrollField | 'aplicaIR';
   anterior: number;
   nuevo: number;
 }
@@ -190,9 +199,11 @@ export interface FieldChange {
  * (no se reporta como "cambio": es una creación, no un ajuste). */
 export function computeInputDiffs(before: PayrollInputs | null, after: PayrollInputs): FieldChange[] {
   if (!before) return [];
-  return PAYROLL_INPUT_FIELDS.filter((field) => before[field] !== after[field]).map((field) => ({
+  const changes: FieldChange[] = PAYROLL_INPUT_FIELDS.filter((field) => before[field] !== after[field]).map((field) => ({
     campo: field,
     anterior: before[field],
     nuevo: after[field],
   }));
+  if (!!before.aplicaIR !== !!after.aplicaIR) changes.push({ campo: 'aplicaIR', anterior: before.aplicaIR ? 1 : 0, nuevo: after.aplicaIR ? 1 : 0 });
+  return changes;
 }

@@ -69,7 +69,7 @@ const CLEARABLE_FIELDS: readonly PayrollField[] = [
 
 const normalizeText = (value: string) => value.trim().toUpperCase();
 
-type SavedRecord = { inputs: PayrollInputs; version: string };
+type SavedRecord = { inputs: PayrollInputs; version: string; nombre?: string | null };
 type SheetState = {
   periodKey: string;
   status: 'loading' | 'ready' | 'error';
@@ -121,7 +121,23 @@ function storeDrafts(periodKey: string, items: Record<string, Draft>) {
   } catch { /* almacenamiento no disponible: los borradores viven solo mientras la pestaña esté abierta */ }
 }
 
-const changedFields = (a: PayrollInputs, b: PayrollInputs) => PAYROLL_INPUT_FIELDS.filter((field) => a[field] !== b[field]);
+// Clave para agrupar/comparar restaurantes: "Barrio Café", "BARRIO CAFE " y "Barrio Café" (con la é escrita
+// de otra forma) son el mismo restaurante. Antes se agrupaba por el texto exacto y salían duplicados.
+const restaurantKey = (name: string | undefined) =>
+  String(name ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim().toUpperCase() || 'SIN RESTAURANTE';
+
+/** Periodo vigente hoy en Nicaragua (UTC-6), mismo criterio que el servidor. */
+function currentPeriodKeyNicaragua(): string {
+  const local = new Date(Date.now() - 6 * 60 * 60 * 1000);
+  return getPeriodoKey(local.getUTCFullYear(), local.getUTCMonth() + 1, local.getUTCDate() <= 15 ? 'first' : 'second');
+}
+
+type DraftField = PayrollField | 'aplicaIR';
+const fieldValue = (inputs: PayrollInputs, field: DraftField) => (field === 'aplicaIR' ? !!inputs.aplicaIR : inputs[field]);
+const changedFields = (a: PayrollInputs, b: PayrollInputs): DraftField[] => {
+  const fields: DraftField[] = [...PAYROLL_INPUT_FIELDS, 'aplicaIR'];
+  return fields.filter((field) => fieldValue(a, field) !== fieldValue(b, field));
+};
 
 /**
  * Combina un borrador con la base actual (hoja o ficha), campo por campo:
@@ -134,9 +150,12 @@ function reconcileDraft(draft: Draft, base: PayrollInputs): { inputs: PayrollInp
   const theirs = changedFields(draft.base, base);
   if (theirs.length === 0) return { inputs: draft.inputs, conflict: false };
   const mine = changedFields(draft.base, draft.inputs);
-  if (mine.some((field) => theirs.includes(field) && draft.inputs[field] !== base[field])) return { inputs: draft.inputs, conflict: true };
+  if (mine.some((field) => theirs.includes(field) && fieldValue(draft.inputs, field) !== fieldValue(base, field))) return { inputs: draft.inputs, conflict: true };
   const merged: PayrollInputs = { ...base };
-  mine.forEach((field) => { merged[field] = draft.inputs[field]; });
+  mine.forEach((field) => {
+    if (field === 'aplicaIR') merged.aplicaIR = !!draft.inputs.aplicaIR;
+    else merged[field] = draft.inputs[field];
+  });
   return { inputs: merged, conflict: false };
 }
 
@@ -210,7 +229,7 @@ export function PayrollModule({ employees, onEmployeesChanged }: {
       .then((data) => {
         const byCedula: Record<string, SavedRecord> = {};
         (data.deducciones ?? []).forEach((item) => {
-          byCedula[normalizeCedula(item.cedula)] = { inputs: item.inputs, version: item.version };
+          byCedula[normalizeCedula(item.cedula)] = { inputs: item.inputs, version: item.version, nombre: (item as { nombre?: string | null }).nombre ?? null };
         });
         const warnings = (data.advertencias ?? []).map((item) => `Fila ${item.fila} de la hoja: ${item.motivo}`);
         setSheet({ periodKey, status: 'ready', byCedula, warnings, message: '' });
@@ -286,6 +305,7 @@ export function PayrollModule({ employees, onEmployeesChanged }: {
       salarioMensual: fichaSalary !== null && fichaSalary > 0 ? fichaSalary : 0,
       diasLaborados: eligibility.days,
       diasVacaciones: 0, horasExtra: 0, otrosIngresos: 0, consumo: 0, prestamo: 0, greceComida: 0, otros: 0,
+      aplicaIR: false,
     };
     const baseInputs = record?.inputs ?? defaults;
     let inputs = baseInputs;
@@ -298,8 +318,10 @@ export function PayrollModule({ employees, onEmployeesChanged }: {
     }
     const warnings: string[] = [];
     if (record) {
-      const diasPagados = record.inputs.diasLaborados + record.inputs.diasVacaciones;
-      if (diasPagados !== eligibility.days) warnings.push(`Días guardados (${diasPagados}) distintos a los que corresponden por fechas (${eligibility.days})`);
+      // Las vacaciones pagadas no se comparan con los días de la quincena (pueden liquidarse aparte).
+      if (record.inputs.diasLaborados !== eligibility.days && record.inputs.diasVacaciones === 0) {
+        warnings.push(`Días laborados guardados (${record.inputs.diasLaborados}) distintos a los que corresponden por fechas (${eligibility.days})`);
+      }
       if (defaults.salarioMensual > 0 && record.inputs.salarioMensual !== defaults.salarioMensual) {
         warnings.push(`Salario guardado distinto al de la ficha (${formatCurrency(defaults.salarioMensual)})`);
       }
@@ -321,7 +343,7 @@ export function PayrollModule({ employees, onEmployeesChanged }: {
   }), [eligible, sheet, sheetReady, drafts, fichaOverrides]);
 
   const rows = useMemo(() => allRows.filter((row) => {
-    const matchesRestaurant = restaurant === 'Todos' || normalizeText(row.restaurante) === normalizeText(restaurant);
+    const matchesRestaurant = restaurant === 'Todos' || restaurantKey(row.restaurante) === restaurantKey(restaurant);
     const text = query.trim().toLowerCase();
     const matchesQuery = !text || row.nombreCompleto.toLowerCase().includes(text) || row.cedula.toLowerCase().includes(text);
     return matchesRestaurant && matchesQuery;
@@ -333,15 +355,39 @@ export function PayrollModule({ employees, onEmployeesChanged }: {
   const unsavedCount = rows.filter(isUnsaved).length;
   const draftCount = allRows.filter((row) => row.status === 'draft' || row.status === 'conflict').length;
   const conflictCount = allRows.filter((row) => row.status === 'conflict').length;
-  // Sin guardar por restaurante (toda la planilla del periodo, sin importar el filtro actual).
-  const unsavedByRestaurant = Object.entries(allRows.filter(isUnsaved).reduce<Record<string, number>>((acc, row) => {
-    const name = row.restaurante || 'Sin restaurante';
-    acc[name] = (acc[name] ?? 0) + 1;
-    return acc;
-  }, {})).sort((a, b) => a[0].localeCompare(b[0]));
-  const orphanCount = sheetReady
-    ? Object.keys(sheet.byCedula).filter((cedula) => !allRows.some((row) => row.cedulaKey === cedula)).length
-    : 0;
+  // Resumen por restaurante de TODA la planilla del periodo (sin importar el filtro actual).
+  const restaurantSummary = (() => {
+    const groups = new Map<string, { labels: Map<string, number>; total: number; saved: number; unsaved: number; conflicts: number }>();
+    allRows.forEach((row) => {
+      const label = (row.restaurante ?? '').trim() || 'Sin restaurante';
+      const key = restaurantKey(label);
+      const group = groups.get(key) ?? { labels: new Map<string, number>(), total: 0, saved: 0, unsaved: 0, conflicts: 0 };
+      group.labels.set(label, (group.labels.get(label) ?? 0) + 1);
+      group.total += 1;
+      if (row.status === 'saved') group.saved += 1;
+      else if (row.status === 'conflict') group.conflicts += 1;
+      else group.unsaved += 1;
+      groups.set(key, group);
+    });
+    return [...groups.entries()]
+      .map(([key, group]) => ({ key, label: [...group.labels].sort((x, y) => y[1] - x[1])[0][0], total: group.total, saved: group.saved, unsaved: group.unsaved, conflicts: group.conflicts }))
+      .sort((x, y) => x.label.localeCompare(y.label));
+  })();
+  const restaurantsWithPending = restaurantSummary.filter((group) => group.unsaved + group.conflicts > 0);
+
+  // Registros guardados en la hoja que no entran en la planilla del periodo, con el motivo.
+  const orphans = sheetReady
+    ? Object.entries(sheet.byCedula)
+        .filter(([cedula]) => !allRows.some((row) => row.cedulaKey === cedula))
+        .map(([cedula, record]) => {
+          const employee = employees.find((item) => normalizeCedula(item.cedula) === cedula);
+          const reason = !employee ? 'La cédula no existe en el módulo Empleados'
+            : normalizeText(employee.estado || 'activo') === 'INACTIVO' ? 'El empleado está inactivo'
+            : 'Sus fechas de ingreso/egreso lo dejan fuera de esta quincena';
+          return { cedula, nombre: employee?.nombreCompleto || record.nombre || cedula, reason };
+        })
+    : [];
+  const orphanCount = orphans.length;
   const selected = allRows.find((row) => row.id === selectedId);
 
   const totalPages = Math.max(1, Math.ceil(rows.length / pageSize));
@@ -374,6 +420,24 @@ export function PayrollModule({ employees, onEmployeesChanged }: {
   const persistRows = async (targets: SaveTarget[]): Promise<SaveOutcome> => {
     if (!sheetReady) return { ok: false, message: 'Espere a que termine de cargar el periodo antes de guardar.' };
     if (isSaving) return { ok: false, message: 'Ya hay un guardado en curso.' };
+
+    // Cambiar el salario en la quincena vigente (o posterior) también actualiza la ficha del empleado y sus
+    // demás quincenas guardadas desde la vigente en adelante: se pide confirmación antes de propagarlo.
+    if (periodKey >= currentPeriodKeyNicaragua()) {
+      const salaryChanges = targets.flatMap((target) => {
+        const row = allRows.find((item) => item.cedulaKey === target.cedulaKey);
+        return row && target.inputs.salarioMensual > 0 && target.inputs.salarioMensual !== row.baseInputs.salarioMensual
+          ? [`• ${row.nombreCompleto}: ${formatCurrency(row.baseInputs.salarioMensual)} → ${formatCurrency(target.inputs.salarioMensual)}`]
+          : [];
+      });
+      if (salaryChanges.length > 0) {
+        const list = salaryChanges.slice(0, 8).join('\n') + (salaryChanges.length > 8 ? `\n… y ${salaryChanges.length - 8} más` : '');
+        const accepted = window.confirm(
+          `Cambia el salario de ${salaryChanges.length} empleado(s):\n${list}\n\nSe actualizará también en su ficha de Empleados y en las quincenas vigentes o siguientes ya guardadas. Las quincenas anteriores no cambian. ¿Continuar?`
+        );
+        if (!accepted) return { ok: false, message: 'Guardado cancelado.' };
+      }
+    }
 
     const savedPeriodKey = periodKey;
     setIsSaving(true);
@@ -424,9 +488,19 @@ export function PayrollModule({ employees, onEmployeesChanged }: {
       if (fichas.length > 0) {
         setFichaOverrides((current) => ({ ...current, ...Object.fromEntries(fichas.map((ficha) => [ficha.cedula, ficha.salario])) }));
         if (onEmployeesChanged) { skipEmployeeSync.current = true; onEmployeesChanged(); }
+        // Aviso para cualquier otra parte de la app (p. ej. la lista del módulo Empleados) que quiera recargarse.
+        window.dispatchEvent(new CustomEvent('empleados:actualizados', { detail: { cedulas: fichas.map((ficha) => ficha.cedula) } }));
       }
+      // En una quincena anterior a la vigente el salario queda solo en esa quincena y NO se aplica a la ficha.
+      const salaryOnlyInThisPeriod = periodKey < currentPeriodKeyNicaragua()
+        ? targets.filter((target) => {
+            const row = allRows.find((item) => item.cedulaKey === target.cedulaKey);
+            return row && target.inputs.salarioMensual > 0 && target.inputs.salarioMensual !== row.baseInputs.salarioMensual;
+          }).length
+        : 0;
       const extra = [
         fichas.length > 0 ? `Salario actualizado también en la ficha de ${fichas.length} empleado(s).` : '',
+        salaryOnlyInThisPeriod > 0 ? `El salario de ${salaryOnlyInThisPeriod} empleado(s) cambió solo en esta quincena: es anterior a la vigente, por eso no se aplicó a la ficha en Empleados.` : '',
         ...avisos,
       ].filter(Boolean).join(' ');
       setNotice({ kind: avisos.length > 0 ? 'warning' : 'success', text: `Se guardaron ${targets.length} registro(s) en la hoja DEDUCCIONES (${savedPeriodKey}). ${extra}`.trim() });
@@ -440,11 +514,10 @@ export function PayrollModule({ employees, onEmployeesChanged }: {
     }
   };
 
-  // Guardado masivo: todo lo mostrado (según el filtro de restaurante) que esté pendiente o en borrador.
-  const handleGuardarPeriodo = async () => {
-    const unsaved = rows.filter(isUnsaved);
-    const scope = restaurant === 'Todos' ? 'todos los restaurantes' : restaurant;
-    const skippedConflicts = rows.filter((row) => row.status === 'conflict').length;
+  // Guardado masivo de las filas indicadas (pendientes o en borrador). Sin conflictos ni errores de validación.
+  const saveRows = async (list: PayrollRow[], scope: string) => {
+    const unsaved = list.filter(isUnsaved);
+    const skippedConflicts = list.filter((row) => row.status === 'conflict').length;
     if (unsaved.length === 0) {
       setNotice({ kind: skippedConflicts > 0 ? 'error' : 'success', text: skippedConflicts > 0
         ? `${skippedConflicts} registro(s) con conflicto no se guardan en bloque: ábralos con "Ver" y resuélvalos.`
@@ -462,6 +535,8 @@ export function PayrollModule({ employees, onEmployeesChanged }: {
       setNotice({ kind: 'warning', text: `Se guardaron ${unsaved.length} registro(s) de ${scope}. ${skippedConflicts} con conflicto quedaron sin guardar.` });
     }
   };
+  // Botón de cabecera: todo lo mostrado según el filtro de restaurante.
+  const handleGuardarPeriodo = () => saveRows(rows, restaurant === 'Todos' ? 'todos los restaurantes' : restaurant);
 
   // ── Borradores ──
   const saveDraft = (row: PayrollRow, values: PayrollInputs) => {
@@ -519,16 +594,41 @@ export function PayrollModule({ employees, onEmployeesChanged }: {
       <p className="font-medium">La hoja DEDUCCIONES tiene filas de este periodo que no se pudieron leer:</p>
       <ul className="mt-1 list-disc pl-5">{sheet.warnings.slice(0, 5).map((text) => <li key={text}>{text}</li>)}</ul>
     </div>}
-    {orphanCount > 0 && <div className={cn('rounded-lg border px-4 py-3 text-sm', noticeStyles.warning)}>Hay {orphanCount} registro(s) guardado(s) en la hoja que no corresponden a ningún empleado pagable en este periodo (no se incluyen en los totales).</div>}
+    {orphanCount > 0 && <details className="group rounded-lg border border-muted bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+      <summary className="flex cursor-pointer list-none items-center gap-2">
+        <Badge variant="outline">{orphanCount}</Badge>
+        <span>registro(s) en la hoja fuera de esta planilla (no suman en los totales)</span>
+        <ChevronDown className="ml-auto h-3.5 w-3.5 transition-transform group-open:rotate-180" />
+      </summary>
+      <ul className="mt-2 list-disc space-y-0.5 pl-5">
+        {orphans.slice(0, 10).map((item) => <li key={item.cedula}><span className="font-medium text-foreground">{item.nombre}</span> · {item.cedula} — {item.reason}</li>)}
+        {orphans.length > 10 && <li>… y {orphans.length - 10} más</li>}
+      </ul>
+    </details>}
     {sheetReady && draftCount > 0 && <div className={cn('flex flex-wrap items-center justify-between gap-3 rounded-lg border px-4 py-3 text-sm', noticeStyles.warning)}>
       <span>Tiene {draftCount} registro(s) con cambios sin guardar{conflictCount > 0 ? ` (${conflictCount} con conflicto)` : ''}. Se conservan en este navegador aunque cierre la ventana o recargue; envíelos con “Guardar cambios”.</span>
       <Button size="sm" variant="outline" onClick={discardAllDrafts}>Descartar borradores</Button>
     </div>}
-    {sheetReady && unsavedByRestaurant.length > 0 && <div className="flex flex-wrap items-center gap-2 text-sm">
-      <span className="text-muted-foreground">Sin guardar por restaurante:</span>
-      {unsavedByRestaurant.map(([name, count]) => <Button key={name} size="sm" variant="outline" className="h-7 gap-1 px-2 text-xs"
-        onClick={() => setRestaurant(restaurantes.find((item) => normalizeText(item) === normalizeText(name)) ?? name)}>{name}<Badge variant="secondary">{count}</Badge></Button>)}
-    </div>}
+    {sheetReady && restaurantsWithPending.length > 0 && <Card className="border-0 shadow-sm">
+      <CardHeader className="pb-3"><CardTitle className="flex items-center gap-2 text-base">
+        Pendientes de guardar por restaurante <Badge variant="secondary">{restaurantsWithPending.reduce((sum, group) => sum + group.unsaved + group.conflicts, 0)}</Badge>
+      </CardTitle></CardHeader>
+      <CardContent className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+        {restaurantsWithPending.map((group) => {
+          const pending = group.unsaved + group.conflicts;
+          const active = restaurantKey(restaurant) === group.key;
+          return <button key={group.key} type="button" title="Filtrar la tabla por este restaurante"
+            onClick={() => setRestaurant(restaurantes.find((item) => restaurantKey(item) === group.key) ?? group.label)}
+            className={cn('rounded-lg border p-3 text-left transition-colors hover:bg-muted/40', active ? 'border-[#007EA7] bg-[#80CED7]/10' : 'border-muted')}>
+            <p className="truncate text-sm font-medium">{group.label}</p>
+            <p className="mt-1 flex items-baseline gap-1.5">
+              <span className="text-2xl font-semibold text-[#007EA7]">{pending}</span>
+              <span className="text-xs text-muted-foreground">{pending === 1 ? 'empleado por pagar' : 'empleados por pagar'} · de {group.total}</span>
+            </p>
+          </button>;
+        })}
+      </CardContent>
+    </Card>}
     {proratedCount > 0 && <div className={cn('rounded-lg border px-4 py-3 text-sm', noticeStyles.warning)}>Hay {proratedCount} empleado(s) con días prorrateados por fecha de ingreso o egreso. Revise el detalle antes de guardar.</div>}
     {blockedCount > 0 && <div className={cn('rounded-lg border px-4 py-3 text-sm', noticeStyles.error)}>{blockedCount} empleado(s) tienen datos por corregir antes de poder guardarse (marcados como “Revisar”).</div>}
 
@@ -570,7 +670,7 @@ export function PayrollModule({ employees, onEmployeesChanged }: {
           <CardContent className="overflow-x-auto p-0">
             <table className="w-full text-sm">
               <thead className="bg-[#007EA7] text-white">
-                <tr>{['Empleado', 'Cargo', 'Restaurante', 'Salario', 'Días', 'Devengado', 'INSS', 'IR', 'Otras', 'Deducciones', 'Neto', 'Estado', ''].map((heading) => <th key={heading} className="whitespace-nowrap px-4 py-3 text-left font-medium">{heading}</th>)}</tr>
+                <tr>{['Empleado', 'Cargo', 'Restaurante', 'Salario', 'Días', 'Devengado', 'INSS', 'Otras', 'Deducciones', 'Neto', 'Estado', ''].map((heading) => <th key={heading} className="whitespace-nowrap px-4 py-3 text-left font-medium">{heading}</th>)}</tr>
               </thead>
               <tbody>{paginatedRows.map((row) => <tr key={row.id} className="border-b transition-colors hover:bg-muted/40">
                 <td className="whitespace-nowrap px-4 py-3 font-medium">{row.nombreCompleto}</td>
@@ -580,7 +680,6 @@ export function PayrollModule({ employees, onEmployeesChanged }: {
                 <td className="px-4 py-3">{row.inputs.diasLaborados}</td>
                 <td className="whitespace-nowrap px-4 py-3">{formatCurrency(row.calculation.totalDevengado)}</td>
                 <td className="whitespace-nowrap px-4 py-3">{formatCurrency(row.calculation.inssLaboral)}</td>
-                <td className="whitespace-nowrap px-4 py-3">{formatCurrency(row.calculation.irLaboral)}</td>
                 <td className="whitespace-nowrap px-4 py-3">{formatCurrency(row.calculation.otrasDeducciones)}</td>
                 <td className="whitespace-nowrap px-4 py-3">{formatCurrency(row.calculation.totalDeducciones)}</td>
                 <td className="whitespace-nowrap px-4 py-3 font-semibold text-[#007EA7]">{formatCurrency(row.calculation.netoPagar)}</td>
@@ -599,7 +698,6 @@ export function PayrollModule({ employees, onEmployeesChanged }: {
                   <td className="px-4 py-3" colSpan={5}>Totales ({rows.length} empleados)</td>
                   <td className="px-4 py-3">{formatCurrency(totals.totalDevengado)}</td>
                   <td className="px-4 py-3">{formatCurrency(totals.inssLaboral)}</td>
-                  <td className="px-4 py-3">{formatCurrency(totals.irLaboral)}</td>
                   <td className="px-4 py-3">{formatCurrency(totals.otrasDeducciones)}</td>
                   <td className="px-4 py-3">{formatCurrency(totals.totalDeducciones)}</td>
                   <td className="px-4 py-3 text-[#007EA7]">{formatCurrency(totals.netoPagar)}</td>
@@ -685,9 +783,11 @@ function PayrollDetail({ row, canPersist, isSaving, onSave, onSaveDraft, onDisca
   // El formulario trabaja con texto para poder escribir decimales ("250.") sin que se pierdan.
   const [form, setForm] = useState<FormValues>(() => inputsToForm(row.inputs));
   const [feedback, setFeedback] = useState<{ kind: 'success' | 'error'; text: string } | null>(null);
+  // 2.0: por defecto solo se deduce INSS; el IR se activa a mano (p. ej. empleados que no son pasantes/temporales).
+  const [aplicaIR, setAplicaIR] = useState<boolean>(!!row.inputs.aplicaIR);
 
   const maxDays = row.eligibility.days;
-  const parsed = useMemo(() => parseFormValues(form, maxDays), [form, maxDays]);
+  const parsed = useMemo(() => parseFormValues(form, maxDays, aplicaIR), [form, maxDays, aplicaIR]);
   const c = parsed.values ? calcularTotales(parsed.values) : null;
   // dirty = distinto a lo que se muestra; changedVsBase = distinto a lo guardado en la hoja (o a los valores por defecto)
   const dirty = parsed.values ? !sameInputs(parsed.values, row.inputs) : true;
@@ -701,7 +801,7 @@ function PayrollDetail({ row, canPersist, isSaving, onSave, onSaveDraft, onDisca
     setForm((current) => ({ ...current, [field]: value }));
   };
   const handleClear = () => {
-    setFeedback(null);
+    setFeedback(null); // no toca aplicaIR: es una condición del empleado, no un extra ni una deducción
     setForm((current) => ({ ...current, ...Object.fromEntries(CLEARABLE_FIELDS.map((field) => [field, '0'])) }));
   };
   const handleSave = async () => {
@@ -716,9 +816,11 @@ function PayrollDetail({ row, canPersist, isSaving, onSave, onSaveDraft, onDisca
   const breakdown: [string, number][] = c ? [
     ['Salario quincenal', c.salarioQuincenal], ['Básico', c.basico], ['Vacaciones', c.vacaciones], ['Horas extra', c.horasExtraMonto],
     ['Total devengado', c.totalDevengado], [`INSS Laboral (${PAYROLL_CONSTANTS.employeeInssRate * 100}%)`, -c.inssLaboral],
-    ['IR Laboral', -c.irLaboral], ['Otras deducciones', -c.otrasDeducciones], ['Neto a pagar', c.netoPagar],
+    ...(aplicaIR ? [['IR Laboral', -c.irLaboral] as [string, number]] : []),
+    ['Otras deducciones', -c.otrasDeducciones], ['Neto a pagar', c.netoPagar],
   ] : [];
 
+  const strongRows = new Set(['Total devengado', 'Neto a pagar']);
   return <div className="space-y-6">
     <div className="grid gap-3 rounded-xl bg-[#80CED7]/10 p-5 sm:grid-cols-2 lg:grid-cols-4">
       <div><p className="text-xs text-muted-foreground">Nombre completo</p><p className="font-semibold">{row.nombreCompleto}</p></div>
@@ -756,6 +858,11 @@ function PayrollDetail({ row, canPersist, isSaving, onSave, onSaveDraft, onDisca
             <p className="text-xs font-medium text-muted-foreground">Deducciones</p>
             <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">{DEDUCTION_FIELDS.map(renderField)}</div>
           </div>
+          <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-muted p-3 text-sm">
+            <input type="checkbox" className="mt-1 h-4 w-4" checked={aplicaIR} onChange={(event) => { setFeedback(null); setAplicaIR(event.target.checked); }} />
+            <span><span className="font-medium">Retener IR laboral</span><br />
+              <span className="text-xs text-muted-foreground">Desactivado por defecto: solo se deduce el INSS (pasantías, temporales). Actívelo solo si este empleado debe retener IR.</span></span>
+          </label>
           {parsed.errors.general && <p className="text-sm text-red-600">{parsed.errors.general}</p>}
         </CardContent>
       </Card>
@@ -763,9 +870,9 @@ function PayrollDetail({ row, canPersist, isSaving, onSave, onSaveDraft, onDisca
       <Card className="min-w-0 border-0 shadow-sm">
         <CardHeader><CardTitle className="text-base">Desglose de nómina</CardTitle></CardHeader>
         <CardContent className="space-y-3 text-sm">
-          {c ? breakdown.map(([label, value], index) => (
-            <div key={label} className={`flex justify-between ${index === 4 || index === 8 ? 'border-t pt-3 font-semibold' : ''}`}>
-              <span>{label}</span><span className={index === 8 ? 'text-lg text-[#007EA7]' : ''}>{formatCurrency(value)}</span>
+          {c ? breakdown.map(([label, value]) => (
+            <div key={label} className={`flex justify-between ${strongRows.has(label) ? 'border-t pt-3 font-semibold' : ''}`}>
+              <span>{label}</span><span className={label === 'Neto a pagar' ? 'text-lg text-[#007EA7]' : ''}>{formatCurrency(value)}</span>
             </div>
           )) : <p className="text-muted-foreground">Corrija los campos marcados para ver el desglose.</p>}
           {c && <>
@@ -801,9 +908,9 @@ function PayrollDetail({ row, canPersist, isSaving, onSave, onSaveDraft, onDisca
 }
 
 function RestaurantBreakdown({ rows }: { rows: PayrollRow[] }) {
-  const groups = rows.reduce<Record<string, { employees: number; devengado: number; deducciones: number; neto: number }>>((acc, row) => {
-    const key = row.restaurante;
-    const current = acc[key] ?? { employees: 0, devengado: 0, deducciones: 0, neto: 0 };
+  const groups = rows.reduce<Record<string, { label: string; employees: number; devengado: number; deducciones: number; neto: number }>>((acc, row) => {
+    const key = restaurantKey(row.restaurante);
+    const current = acc[key] ?? { label: (row.restaurante ?? '').trim() || 'Sin restaurante', employees: 0, devengado: 0, deducciones: 0, neto: 0 };
     current.employees += 1;
     current.devengado += row.calculation.totalDevengado;
     current.deducciones += row.calculation.totalDeducciones;
@@ -811,10 +918,10 @@ function RestaurantBreakdown({ rows }: { rows: PayrollRow[] }) {
     acc[key] = current;
     return acc;
   }, {});
-  return <Card className="border-0 shadow-sm"><CardHeader><CardTitle className="text-base">Desglose por restaurante</CardTitle></CardHeader><CardContent className="overflow-x-auto"><table className="w-full text-sm"><thead className="border-b text-left text-muted-foreground"><tr><th className="py-2">Restaurante</th><th className="py-2 text-right">Empleados</th><th className="py-2 text-right">Devengado</th><th className="py-2 text-right">Deducciones</th><th className="py-2 text-right">Neto a pagar</th></tr></thead><tbody>{Object.entries(groups).map(([name, values]) => <tr key={name} className="border-b"><td className="py-2 font-medium">{name}</td><td className="py-2 text-right">{values.employees}</td><td className="py-2 text-right">{formatCurrency(values.devengado)}</td><td className="py-2 text-right">{formatCurrency(values.deducciones)}</td><td className="py-2 text-right font-semibold text-[#007EA7]">{formatCurrency(values.neto)}</td></tr>)}</tbody></table></CardContent></Card>;
+  return <Card className="border-0 shadow-sm"><CardHeader><CardTitle className="text-base">Desglose por restaurante</CardTitle></CardHeader><CardContent className="overflow-x-auto"><table className="w-full text-sm"><thead className="border-b text-left text-muted-foreground"><tr><th className="py-2">Restaurante</th><th className="py-2 text-right">Empleados</th><th className="py-2 text-right">Devengado</th><th className="py-2 text-right">Deducciones</th><th className="py-2 text-right">Neto a pagar</th></tr></thead><tbody>{Object.entries(groups).map(([key, values]) => <tr key={key} className="border-b"><td className="py-2 font-medium">{values.label}</td><td className="py-2 text-right">{values.employees}</td><td className="py-2 text-right">{formatCurrency(values.devengado)}</td><td className="py-2 text-right">{formatCurrency(values.deducciones)}</td><td className="py-2 text-right font-semibold text-[#007EA7]">{formatCurrency(values.neto)}</td></tr>)}</tbody></table></CardContent></Card>;
 }
 
 function TotalsPayable({ rows, totals }: { rows: PayrollRow[]; totals: Record<string, number> }) {
   const cards = [['Salario', totals.totalDevengado], ['INSS Patronal', totals.inssPatronal], ['INATEC', totals.inatec], ['Aguinaldo', totals.provisionAguinaldo], ['Indemnizaciones', totals.provisionIndemnizacion], ['Vacaciones', totals.provisionVacaciones], ['Salario por pagar', totals.netoPagar]];
-  return <Card className="border-0 shadow-sm"><CardHeader><CardTitle className="flex items-center gap-2 text-base"><Wallet className="h-4 w-4 text-[#007EA7]" />Totales por Pagar</CardTitle></CardHeader><CardContent><div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">{cards.map(([label, value]) => <div key={String(label)} className="rounded-lg bg-muted/50 p-3"><p className="text-xs text-muted-foreground">{label}</p><p className="mt-1 font-semibold">{formatCurrency(Number(value))}</p></div>)}</div><div className="mt-5 overflow-x-auto"><table className="w-full text-sm"><thead><tr className="border-b text-left text-muted-foreground"><th className="py-2">Concepto</th><th className="py-2 text-right">Monto</th></tr></thead><tbody>{[['INSS laboral retenido', totals.inssLaboral], ['IR retenido', totals.irLaboral], ['Consumos y préstamos', totals.otrasDeducciones]].map(([label, value]) => <tr key={String(label)} className="border-b"><td className="py-2">{label}</td><td className="py-2 text-right">{formatCurrency(Number(value))}</td></tr>)}</tbody></table></div><p className="mt-3 text-xs text-muted-foreground">El resumen se calcula con los {rows.length} empleados del filtro actual y queda listo para exportar al periodo.</p></CardContent></Card>;
+  return <Card className="border-0 shadow-sm"><CardHeader><CardTitle className="flex items-center gap-2 text-base"><Wallet className="h-4 w-4 text-[#007EA7]" />Totales por Pagar</CardTitle></CardHeader><CardContent><div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">{cards.map(([label, value]) => <div key={String(label)} className="rounded-lg bg-muted/50 p-3"><p className="text-xs text-muted-foreground">{label}</p><p className="mt-1 font-semibold">{formatCurrency(Number(value))}</p></div>)}</div><div className="mt-5 overflow-x-auto"><table className="w-full text-sm"><thead><tr className="border-b text-left text-muted-foreground"><th className="py-2">Concepto</th><th className="py-2 text-right">Monto</th></tr></thead><tbody>{[['INSS laboral retenido', totals.inssLaboral], ...(totals.irLaboral > 0 ? [['IR retenido', totals.irLaboral]] : []), ['Consumos y préstamos', totals.otrasDeducciones]].map(([label, value]) => <tr key={String(label)} className="border-b"><td className="py-2">{label}</td><td className="py-2 text-right">{formatCurrency(Number(value))}</td></tr>)}</tbody></table></div><p className="mt-3 text-xs text-muted-foreground">El resumen se calcula con los {rows.length} empleados del filtro actual y queda listo para exportar al periodo.</p></CardContent></Card>;
 }

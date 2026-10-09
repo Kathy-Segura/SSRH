@@ -1,6 +1,10 @@
 import { NextResponse } from 'next/server';
 import { getEmpleados, appendEmpleado } from '@/lib/googleSheets';
 
+// Sin esto, Next puede servir la lista de empleados guardada en caché y un salario recién actualizado
+// (por ejemplo desde Deducciones) no se vería en el módulo de Empleados.
+export const dynamic = 'force-dynamic';
+
 // GET /api/empleados — carga todos los empleados desde Google Sheets
 export async function GET() {
   try {
