@@ -10,8 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Separator } from '@/components/ui/separator';
-import { ChevronDown, ChevronLeft, ChevronRight, Eraser, FileText, Printer, RefreshCw, Save, Search, SlidersHorizontal, Users, Wallet } from 'lucide-react';
+import { ChevronDown, ChevronLeft, ChevronRight, FileText, History, Printer, RefreshCw, Save, Search, SlidersHorizontal, Users, Wallet } from 'lucide-react';
 import {
   calcularTotales,
   formatCurrency,
@@ -20,54 +19,29 @@ import {
   getPayrollPeriod,
   getPeriodoKey,
   parseCalendarDate,
-  PAYROLL_CONSTANTS,
   PAYROLL_INPUT_FIELDS,
   PAYROLL_YEAR_WINDOW,
   type Fortnight,
-  type PayrollCalculation,
   type PayrollInputs,
-  type PeriodEligibility,
 } from '@/lib/payroll-calculations';
 import { parseMoney } from '@/lib/money';
 import {
-  FIELD_LABELS,
-  inputsToForm,
   normalizeCedula,
-  parseFormValues,
   sameInputs,
   validatePayrollInputs,
   type DeduccionApiItem,
   type DeduccionProblem,
   type FieldErrors,
-  type FormValues,
   type PayrollField,
 } from '@/lib/payroll-validation';
+import { normalizeText, restaurantKey, type PayrollRow, type SaveOutcome } from '@/components/payroll-shared';
+import { PayrollDetail } from '@/components/payroll-detail';
+import { DeductionHistory, RestaurantBreakdown, TotalsPayable } from '@/components/payroll-reports';
 
 // Solo se usa si falla la carga desde /api/restaurantes (mismo patrón que
 // employee-form-modal.tsx / employee-modal.tsx).
 const RESTAURANTES_FALLBACK = ['Todos'];
 const PAGE_SIZE_OPTIONS = [10, 25, 50] as const;
-
-// Campos del formulario flotante, en el orden en que se muestran.
-const INCOME_FIELDS: readonly { field: PayrollField; prefix?: string }[] = [
-  { field: 'salarioMensual', prefix: 'C$' },
-  { field: 'diasLaborados' },
-  { field: 'diasVacaciones' },
-  { field: 'horasExtra' },
-  { field: 'otrosIngresos', prefix: 'C$' },
-];
-const DEDUCTION_FIELDS: readonly { field: PayrollField; prefix?: string }[] = [
-  { field: 'consumo', prefix: 'C$' },
-  { field: 'prestamo', prefix: 'C$' },
-  { field: 'greceComida', prefix: 'C$' },
-  { field: 'otros', prefix: 'C$' },
-];
-// "Limpiar" deja en cero extras y deducciones; salario y días laborados no se tocan.
-const CLEARABLE_FIELDS: readonly PayrollField[] = [
-  'diasVacaciones', 'horasExtra', 'otrosIngresos', 'consumo', 'prestamo', 'greceComida', 'otros',
-];
-
-const normalizeText = (value: string) => value.trim().toUpperCase();
 
 type SavedRecord = { inputs: PayrollInputs; version: string; nombre?: string | null };
 type SheetState = {
@@ -77,24 +51,8 @@ type SheetState = {
   warnings: string[];
   message: string;
 };
-type PayrollRow = Employee & {
-  cedulaKey: string;
-  inputs: PayrollInputs;
-  calculation: PayrollCalculation;
-  eligibility: PeriodEligibility;
-  // saved = igual a la hoja · pending = aún sin fila en la hoja · draft = cambios locales sin guardar
-  // conflict = hay borrador, pero la hoja/ficha cambió los mismos campos después de crearlo
-  status: 'saved' | 'pending' | 'draft' | 'conflict';
-  /** Valores de la hoja (o los predeterminados de la ficha si aún no hay fila): base sobre la que se hacen los borradores. */
-  baseInputs: PayrollInputs;
-  version: string | null;
-  issues: string[];
-  warnings: string[];
-  fieldErrors: FieldErrors;
-};
 type Notice = { kind: 'success' | 'error' | 'warning'; text: string; canReload?: boolean } | null;
 type SaveTarget = { cedulaKey: string; inputs: PayrollInputs; version: string | null; nombre: string };
-type SaveOutcome = { ok: true } | { ok: false; message: string };
 
 // ── Borradores: cambios sin guardar que se conservan (por periodo) en este navegador hasta guardarse ──
 type Draft = { inputs: PayrollInputs; base: PayrollInputs };
@@ -121,21 +79,16 @@ function storeDrafts(periodKey: string, items: Record<string, Draft>) {
   } catch { /* almacenamiento no disponible: los borradores viven solo mientras la pestaña esté abierta */ }
 }
 
-// Clave para agrupar/comparar restaurantes: "Barrio Café", "BARRIO CAFE " y "Barrio Café" (con la é escrita
-// de otra forma) son el mismo restaurante. Antes se agrupaba por el texto exacto y salían duplicados.
-const restaurantKey = (name: string | undefined) =>
-  String(name ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim().toUpperCase() || 'SIN RESTAURANTE';
-
 /** Periodo vigente hoy en Nicaragua (UTC-6), mismo criterio que el servidor. */
 function currentPeriodKeyNicaragua(): string {
   const local = new Date(Date.now() - 6 * 60 * 60 * 1000);
   return getPeriodoKey(local.getUTCFullYear(), local.getUTCMonth() + 1, local.getUTCDate() <= 15 ? 'first' : 'second');
 }
 
-type DraftField = PayrollField | 'aplicaIR';
-const fieldValue = (inputs: PayrollInputs, field: DraftField) => (field === 'aplicaIR' ? !!inputs.aplicaIR : inputs[field]);
+type DraftField = PayrollField | 'aplicaIR' | 'excluirINSS';
+const fieldValue = (inputs: PayrollInputs, field: DraftField) => (field === 'aplicaIR' ? !!inputs.aplicaIR : field === 'excluirINSS' ? !!inputs.excluirINSS : inputs[field]);
 const changedFields = (a: PayrollInputs, b: PayrollInputs): DraftField[] => {
-  const fields: DraftField[] = [...PAYROLL_INPUT_FIELDS, 'aplicaIR'];
+  const fields: DraftField[] = [...PAYROLL_INPUT_FIELDS, 'aplicaIR', 'excluirINSS'];
   return fields.filter((field) => fieldValue(a, field) !== fieldValue(b, field));
 };
 
@@ -154,6 +107,7 @@ function reconcileDraft(draft: Draft, base: PayrollInputs): { inputs: PayrollInp
   const merged: PayrollInputs = { ...base };
   mine.forEach((field) => {
     if (field === 'aplicaIR') merged.aplicaIR = !!draft.inputs.aplicaIR;
+    else if (field === 'excluirINSS') merged.excluirINSS = !!draft.inputs.excluirINSS;
     else merged[field] = draft.inputs[field];
   });
   return { inputs: merged, conflict: false };
@@ -167,7 +121,7 @@ export function PayrollModule({ employees, onEmployeesChanged }: {
   /** Opcional: se llama cuando guardar una deducción actualizó el salario en la ficha, para que la página recargue empleados. */
   onEmployeesChanged?: () => void;
 }) {
-  const [mode, setMode] = useState<'table' | 'totals'>('table');
+  const [mode, setMode] = useState<'table' | 'totals' | 'history'>('table');
   const [restaurant, setRestaurant] = useState('Todos');
   const [month, setMonth] = useState(() => String(new Date().getMonth() + 1));
   const [year, setYear] = useState(() => String(new Date().getFullYear()));
@@ -305,7 +259,7 @@ export function PayrollModule({ employees, onEmployeesChanged }: {
       salarioMensual: fichaSalary !== null && fichaSalary > 0 ? fichaSalary : 0,
       diasLaborados: eligibility.days,
       diasVacaciones: 0, horasExtra: 0, otrosIngresos: 0, consumo: 0, prestamo: 0, greceComida: 0, otros: 0,
-      aplicaIR: false,
+      aplicaIR: false, excluirINSS: false,
     };
     const baseInputs = record?.inputs ?? defaults;
     let inputs = baseInputs;
@@ -355,26 +309,6 @@ export function PayrollModule({ employees, onEmployeesChanged }: {
   const unsavedCount = rows.filter(isUnsaved).length;
   const draftCount = allRows.filter((row) => row.status === 'draft' || row.status === 'conflict').length;
   const conflictCount = allRows.filter((row) => row.status === 'conflict').length;
-  // Resumen por restaurante de TODA la planilla del periodo (sin importar el filtro actual).
-  const restaurantSummary = (() => {
-    const groups = new Map<string, { labels: Map<string, number>; total: number; saved: number; unsaved: number; conflicts: number }>();
-    allRows.forEach((row) => {
-      const label = (row.restaurante ?? '').trim() || 'Sin restaurante';
-      const key = restaurantKey(label);
-      const group = groups.get(key) ?? { labels: new Map<string, number>(), total: 0, saved: 0, unsaved: 0, conflicts: 0 };
-      group.labels.set(label, (group.labels.get(label) ?? 0) + 1);
-      group.total += 1;
-      if (row.status === 'saved') group.saved += 1;
-      else if (row.status === 'conflict') group.conflicts += 1;
-      else group.unsaved += 1;
-      groups.set(key, group);
-    });
-    return [...groups.entries()]
-      .map(([key, group]) => ({ key, label: [...group.labels].sort((x, y) => y[1] - x[1])[0][0], total: group.total, saved: group.saved, unsaved: group.unsaved, conflicts: group.conflicts }))
-      .sort((x, y) => x.label.localeCompare(y.label));
-  })();
-  const restaurantsWithPending = restaurantSummary.filter((group) => group.unsaved + group.conflicts > 0);
-
   // Registros guardados en la hoja que no entran en la planilla del periodo, con el motivo.
   const orphans = sheetReady
     ? Object.entries(sheet.byCedula)
@@ -609,26 +543,6 @@ export function PayrollModule({ employees, onEmployeesChanged }: {
       <span>Tiene {draftCount} registro(s) con cambios sin guardar{conflictCount > 0 ? ` (${conflictCount} con conflicto)` : ''}. Se conservan en este navegador aunque cierre la ventana o recargue; envíelos con “Guardar cambios”.</span>
       <Button size="sm" variant="outline" onClick={discardAllDrafts}>Descartar borradores</Button>
     </div>}
-    {sheetReady && restaurantsWithPending.length > 0 && <Card className="border-0 shadow-sm">
-      <CardHeader className="pb-3"><CardTitle className="flex items-center gap-2 text-base">
-        Pendientes de guardar por restaurante <Badge variant="secondary">{restaurantsWithPending.reduce((sum, group) => sum + group.unsaved + group.conflicts, 0)}</Badge>
-      </CardTitle></CardHeader>
-      <CardContent className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-        {restaurantsWithPending.map((group) => {
-          const pending = group.unsaved + group.conflicts;
-          const active = restaurantKey(restaurant) === group.key;
-          return <button key={group.key} type="button" title="Filtrar la tabla por este restaurante"
-            onClick={() => setRestaurant(restaurantes.find((item) => restaurantKey(item) === group.key) ?? group.label)}
-            className={cn('rounded-lg border p-3 text-left transition-colors hover:bg-muted/40', active ? 'border-[#007EA7] bg-[#80CED7]/10' : 'border-muted')}>
-            <p className="truncate text-sm font-medium">{group.label}</p>
-            <p className="mt-1 flex items-baseline gap-1.5">
-              <span className="text-2xl font-semibold text-[#007EA7]">{pending}</span>
-              <span className="text-xs text-muted-foreground">{pending === 1 ? 'empleado por pagar' : 'empleados por pagar'} · de {group.total}</span>
-            </p>
-          </button>;
-        })}
-      </CardContent>
-    </Card>}
     {proratedCount > 0 && <div className={cn('rounded-lg border px-4 py-3 text-sm', noticeStyles.warning)}>Hay {proratedCount} empleado(s) con días prorrateados por fecha de ingreso o egreso. Revise el detalle antes de guardar.</div>}
     {blockedCount > 0 && <div className={cn('rounded-lg border px-4 py-3 text-sm', noticeStyles.error)}>{blockedCount} empleado(s) tienen datos por corregir antes de poder guardarse (marcados como “Revisar”).</div>}
 
@@ -658,10 +572,11 @@ export function PayrollModule({ employees, onEmployeesChanged }: {
       </CardContent>}
     </Card>
 
-    <Tabs value={mode} onValueChange={(value) => setMode(value as 'table' | 'totals')}>
-      <TabsList className="grid h-auto w-full grid-cols-1 gap-2 bg-[#80CED7]/10 p-2 sm:grid-cols-2">
+    <Tabs value={mode} onValueChange={(value) => setMode(value as 'table' | 'totals' | 'history')}>
+      <TabsList className="grid h-auto w-full grid-cols-1 gap-2 bg-[#80CED7]/10 p-2 sm:grid-cols-3">
         <TabsTrigger value="table" className="gap-2 data-[state=active]:bg-[#80CED7] data-[state=active]:text-black"><Users className="h-4 w-4" />Tabla masiva</TabsTrigger>
         <TabsTrigger value="totals" className="gap-2"><Wallet className="h-4 w-4" />Total por pagar</TabsTrigger>
+        <TabsTrigger value="history" className="gap-2"><History className="h-4 w-4" />Historial de deducciones</TabsTrigger>
       </TabsList>
 
       <TabsContent value="table" className="mt-4">
@@ -727,6 +642,10 @@ export function PayrollModule({ employees, onEmployeesChanged }: {
         <TotalsPayable rows={rows} totals={totals} />
         <RestaurantBreakdown rows={rows} />
       </TabsContent>
+
+      <TabsContent value="history" className="mt-4">
+        {mode === 'history' && <DeductionHistory periodKey={periodKey} />}
+      </TabsContent>
     </Tabs>
 
     <Dialog open={detailOpen} onOpenChange={setDetailOpen}>
@@ -739,6 +658,8 @@ export function PayrollModule({ employees, onEmployeesChanged }: {
           ? <PayrollDetail
               key={`${selected.id}-${periodKey}-${reloadToken}`}
               row={selected}
+              periodLabel={`${period.start.toLocaleDateString('es-NI')} — ${period.end.toLocaleDateString('es-NI')}`}
+              fortnightLabel={fortnight === 'first' ? '1.ª quincena' : '2.ª quincena'}
               canPersist={sheetReady && !isSaving}
               isSaving={isSaving}
               onSave={(values) => persistRows([{ cedulaKey: selected.cedulaKey, inputs: values, version: selected.version, nombre: selected.nombreCompleto }])}
@@ -755,173 +676,4 @@ export function PayrollModule({ employees, onEmployeesChanged }: {
       </DialogContent>
     </Dialog>
   </div>;
-}
-
-function NumberField({ label, prefix, value, error, onChange }: {
-  label: string; prefix?: string; value: string; error?: string; onChange: (value: string) => void;
-}) {
-  return <div className="min-w-0 space-y-1.5">
-    <label className="text-xs font-medium text-muted-foreground">{label}</label>
-    <div className="relative">
-      {prefix && <span className="absolute left-3 top-2.5 text-xs text-muted-foreground">{prefix}</span>}
-      <Input inputMode="decimal" value={value} aria-invalid={!!error} onChange={(event) => onChange(event.target.value)} className={cn(prefix && 'pl-8', error && 'border-red-500 focus-visible:ring-red-500')} />
-    </div>
-    {error && <p className="text-xs text-red-600">{error}</p>}
-  </div>;
-}
-
-function PayrollDetail({ row, canPersist, isSaving, onSave, onSaveDraft, onDiscardDraft, onReload, onClose }: {
-  row: PayrollRow;
-  canPersist: boolean;
-  isSaving: boolean;
-  onSave: (values: PayrollInputs) => Promise<SaveOutcome>;
-  onSaveDraft: (values: PayrollInputs) => void;
-  onDiscardDraft: () => void;
-  onReload: () => void;
-  onClose: () => void;
-}) {
-  // El formulario trabaja con texto para poder escribir decimales ("250.") sin que se pierdan.
-  const [form, setForm] = useState<FormValues>(() => inputsToForm(row.inputs));
-  const [feedback, setFeedback] = useState<{ kind: 'success' | 'error'; text: string } | null>(null);
-  // 2.0: por defecto solo se deduce INSS; el IR se activa a mano (p. ej. empleados que no son pasantes/temporales).
-  const [aplicaIR, setAplicaIR] = useState<boolean>(!!row.inputs.aplicaIR);
-
-  const maxDays = row.eligibility.days;
-  const parsed = useMemo(() => parseFormValues(form, maxDays, aplicaIR), [form, maxDays, aplicaIR]);
-  const c = parsed.values ? calcularTotales(parsed.values) : null;
-  // dirty = distinto a lo que se muestra; changedVsBase = distinto a lo guardado en la hoja (o a los valores por defecto)
-  const dirty = parsed.values ? !sameInputs(parsed.values, row.inputs) : true;
-  const changedVsBase = parsed.values ? !sameInputs(parsed.values, row.baseInputs) : true;
-  const hasDraft = row.status === 'draft' || row.status === 'conflict';
-  const canSave = !!parsed.values && canPersist && row.issues.length === 0 && (row.status !== 'saved' || changedVsBase);
-  const canDraft = !!parsed.values && row.issues.length === 0 && (dirty || row.status === 'conflict');
-
-  const setField = (field: PayrollField, value: string) => {
-    setFeedback(null);
-    setForm((current) => ({ ...current, [field]: value }));
-  };
-  const handleClear = () => {
-    setFeedback(null); // no toca aplicaIR: es una condición del empleado, no un extra ni una deducción
-    setForm((current) => ({ ...current, ...Object.fromEntries(CLEARABLE_FIELDS.map((field) => [field, '0'])) }));
-  };
-  const handleSave = async () => {
-    if (!parsed.values) return;
-    const outcome = await onSave(parsed.values);
-    setFeedback(outcome.ok ? { kind: 'success', text: 'Guardado en la hoja DEDUCCIONES.' } : { kind: 'error', text: outcome.message });
-  };
-
-  const renderField = ({ field, prefix }: { field: PayrollField; prefix?: string }) => (
-    <NumberField key={field} label={FIELD_LABELS[field]} prefix={prefix} value={form[field]} error={parsed.errors[field]} onChange={(value) => setField(field, value)} />
-  );
-  const breakdown: [string, number][] = c ? [
-    ['Salario quincenal', c.salarioQuincenal], ['Básico', c.basico], ['Vacaciones', c.vacaciones], ['Horas extra', c.horasExtraMonto],
-    ['Total devengado', c.totalDevengado], [`INSS Laboral (${PAYROLL_CONSTANTS.employeeInssRate * 100}%)`, -c.inssLaboral],
-    ...(aplicaIR ? [['IR Laboral', -c.irLaboral] as [string, number]] : []),
-    ['Otras deducciones', -c.otrasDeducciones], ['Neto a pagar', c.netoPagar],
-  ] : [];
-
-  const strongRows = new Set(['Total devengado', 'Neto a pagar']);
-  return <div className="space-y-6">
-    <div className="grid gap-3 rounded-xl bg-[#80CED7]/10 p-5 sm:grid-cols-2 lg:grid-cols-4">
-      <div><p className="text-xs text-muted-foreground">Nombre completo</p><p className="font-semibold">{row.nombreCompleto}</p></div>
-      <div><p className="text-xs text-muted-foreground">Cédula</p><p className="font-semibold">{row.cedula}</p></div>
-      <div><p className="text-xs text-muted-foreground">Cargo</p><p className="font-semibold">{row.cargo || '-'}</p></div>
-      <div><p className="text-xs text-muted-foreground">Restaurante</p><p className="font-semibold">{row.restaurante}</p></div>
-    </div>
-
-    <p className="text-sm text-muted-foreground">
-      Corresponden <strong>{maxDays}</strong> de {PAYROLL_CONSTANTS.fortnightDays} días en esta quincena{row.eligibility.reason ? ` (${row.eligibility.reason.toLowerCase()})` : ''}.
-      {' '}{row.status === 'saved' ? 'Datos leídos de la hoja; puede modificarlos y guardar.' : hasDraft ? 'Hay cambios en borrador, todavía no guardados en la hoja.' : 'Aún no hay datos guardados para este periodo.'}
-    </p>
-
-    {row.issues.length > 0 && <div className="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700">{row.issues.join(' · ')}. Corrija la ficha del empleado para poder guardar.</div>}
-    {row.warnings.length > 0 && <div className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">{row.warnings.join(' · ')}</div>}
-
-    <div className="grid gap-4 md:grid-cols-3">
-      {([['Total devengado', c?.totalDevengado], ['Deducciones', c?.totalDeducciones], ['Neto a pagar', c?.netoPagar]] as const).map(([label, value], index) => (
-        <Card key={label} className={index === 2 ? 'border-[#80CED7] bg-[#80CED7]/10' : ''}>
-          <CardContent className="p-5"><p className="text-sm text-muted-foreground">{label}</p><p className="mt-1 text-2xl font-bold text-[#007EA7]">{value === undefined ? '—' : formatCurrency(value)}</p></CardContent>
-        </Card>
-      ))}
-    </div>
-
-    <div className="space-y-6">
-      <Card className="min-w-0 border-0 shadow-sm">
-        <CardHeader><CardTitle>{row.nombreCompleto}</CardTitle><p className="text-sm text-muted-foreground">{row.cargo || 'Sin cargo'} · {row.restaurante}</p></CardHeader>
-        <CardContent className="space-y-5">
-          <div className="space-y-3">
-            <p className="text-xs font-medium text-muted-foreground">Ingresos y extras</p>
-            <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-5">{INCOME_FIELDS.map(renderField)}</div>
-          </div>
-          <Separator />
-          <div className="space-y-3">
-            <p className="text-xs font-medium text-muted-foreground">Deducciones</p>
-            <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">{DEDUCTION_FIELDS.map(renderField)}</div>
-          </div>
-          <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-muted p-3 text-sm">
-            <input type="checkbox" className="mt-1 h-4 w-4" checked={aplicaIR} onChange={(event) => { setFeedback(null); setAplicaIR(event.target.checked); }} />
-            <span><span className="font-medium">Retener IR laboral</span><br />
-              <span className="text-xs text-muted-foreground">Desactivado por defecto: solo se deduce el INSS (pasantías, temporales). Actívelo solo si este empleado debe retener IR.</span></span>
-          </label>
-          {parsed.errors.general && <p className="text-sm text-red-600">{parsed.errors.general}</p>}
-        </CardContent>
-      </Card>
-
-      <Card className="min-w-0 border-0 shadow-sm">
-        <CardHeader><CardTitle className="text-base">Desglose de nómina</CardTitle></CardHeader>
-        <CardContent className="space-y-3 text-sm">
-          {c ? breakdown.map(([label, value]) => (
-            <div key={label} className={`flex justify-between ${strongRows.has(label) ? 'border-t pt-3 font-semibold' : ''}`}>
-              <span>{label}</span><span className={label === 'Neto a pagar' ? 'text-lg text-[#007EA7]' : ''}>{formatCurrency(value)}</span>
-            </div>
-          )) : <p className="text-muted-foreground">Corrija los campos marcados para ver el desglose.</p>}
-          {c && <>
-            <Separator />
-            <p className="pt-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">Provisiones patronales</p>
-            <div className="grid grid-cols-3 gap-2 text-xs">
-              <span>Aguinaldo<br /><strong>{formatCurrency(c.provisionAguinaldo)}</strong></span>
-              <span>Indemnización<br /><strong>{formatCurrency(c.provisionIndemnizacion)}</strong></span>
-              <span>Vacaciones<br /><strong>{formatCurrency(c.provisionVacaciones)}</strong></span>
-            </div>
-          </>}
-        </CardContent>
-      </Card>
-    </div>
-
-    {feedback && <div role="status" className={cn('flex items-center justify-between gap-3 rounded-lg border px-4 py-3 text-sm', feedback.kind === 'success' ? 'border-[#80CED7]/40 bg-[#80CED7]/10 text-[#007EA7]' : 'border-red-300 bg-red-50 text-red-700')}>
-      <span>{feedback.text}</span>
-      {feedback.kind === 'error' && <Button size="sm" variant="outline" className="gap-2" onClick={onReload}><RefreshCw className="h-4 w-4" />Recargar periodo</Button>}
-    </div>}
-
-    <div className="flex flex-col-reverse gap-2 border-t pt-4 sm:flex-row sm:justify-between">
-      <Button variant="outline" className="gap-2" onClick={handleClear} disabled={isSaving}><Eraser className="h-4 w-4" />Limpiar extras y deducciones</Button>
-      <div className="flex flex-col-reverse gap-2 sm:flex-row">
-        {hasDraft && <Button variant="ghost" disabled={isSaving} onClick={onDiscardDraft}>Descartar borrador</Button>}
-        <Button variant="ghost" onClick={onClose}>Cerrar</Button>
-        <Button variant="outline" disabled={!canDraft || isSaving} onClick={() => parsed.values && onSaveDraft(parsed.values)}>Dejar en borrador</Button>
-        <Button className="gap-2 bg-[#80CED7] text-black hover:bg-[#007EA7] hover:text-white" disabled={!canSave} onClick={handleSave}>
-          <Save className="h-4 w-4" />{isSaving ? 'Guardando...' : 'Guardar'}
-        </Button>
-      </div>
-    </div>
-  </div>;
-}
-
-function RestaurantBreakdown({ rows }: { rows: PayrollRow[] }) {
-  const groups = rows.reduce<Record<string, { label: string; employees: number; devengado: number; deducciones: number; neto: number }>>((acc, row) => {
-    const key = restaurantKey(row.restaurante);
-    const current = acc[key] ?? { label: (row.restaurante ?? '').trim() || 'Sin restaurante', employees: 0, devengado: 0, deducciones: 0, neto: 0 };
-    current.employees += 1;
-    current.devengado += row.calculation.totalDevengado;
-    current.deducciones += row.calculation.totalDeducciones;
-    current.neto += row.calculation.netoPagar;
-    acc[key] = current;
-    return acc;
-  }, {});
-  return <Card className="border-0 shadow-sm"><CardHeader><CardTitle className="text-base">Desglose por restaurante</CardTitle></CardHeader><CardContent className="overflow-x-auto"><table className="w-full text-sm"><thead className="border-b text-left text-muted-foreground"><tr><th className="py-2">Restaurante</th><th className="py-2 text-right">Empleados</th><th className="py-2 text-right">Devengado</th><th className="py-2 text-right">Deducciones</th><th className="py-2 text-right">Neto a pagar</th></tr></thead><tbody>{Object.entries(groups).map(([key, values]) => <tr key={key} className="border-b"><td className="py-2 font-medium">{values.label}</td><td className="py-2 text-right">{values.employees}</td><td className="py-2 text-right">{formatCurrency(values.devengado)}</td><td className="py-2 text-right">{formatCurrency(values.deducciones)}</td><td className="py-2 text-right font-semibold text-[#007EA7]">{formatCurrency(values.neto)}</td></tr>)}</tbody></table></CardContent></Card>;
-}
-
-function TotalsPayable({ rows, totals }: { rows: PayrollRow[]; totals: Record<string, number> }) {
-  const cards = [['Salario', totals.totalDevengado], ['INSS Patronal', totals.inssPatronal], ['INATEC', totals.inatec], ['Aguinaldo', totals.provisionAguinaldo], ['Indemnizaciones', totals.provisionIndemnizacion], ['Vacaciones', totals.provisionVacaciones], ['Salario por pagar', totals.netoPagar]];
-  return <Card className="border-0 shadow-sm"><CardHeader><CardTitle className="flex items-center gap-2 text-base"><Wallet className="h-4 w-4 text-[#007EA7]" />Totales por Pagar</CardTitle></CardHeader><CardContent><div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">{cards.map(([label, value]) => <div key={String(label)} className="rounded-lg bg-muted/50 p-3"><p className="text-xs text-muted-foreground">{label}</p><p className="mt-1 font-semibold">{formatCurrency(Number(value))}</p></div>)}</div><div className="mt-5 overflow-x-auto"><table className="w-full text-sm"><thead><tr className="border-b text-left text-muted-foreground"><th className="py-2">Concepto</th><th className="py-2 text-right">Monto</th></tr></thead><tbody>{[['INSS laboral retenido', totals.inssLaboral], ...(totals.irLaboral > 0 ? [['IR retenido', totals.irLaboral]] : []), ['Consumos y préstamos', totals.otrasDeducciones]].map(([label, value]) => <tr key={String(label)} className="border-b"><td className="py-2">{label}</td><td className="py-2 text-right">{formatCurrency(Number(value))}</td></tr>)}</tbody></table></div><p className="mt-3 text-xs text-muted-foreground">El resumen se calcula con los {rows.length} empleados del filtro actual y queda listo para exportar al periodo.</p></CardContent></Card>;
 }

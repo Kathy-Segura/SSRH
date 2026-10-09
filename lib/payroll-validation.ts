@@ -52,7 +52,7 @@ export function inputsToForm(inputs: PayrollInputs): FormValues {
 }
 
 export function sameInputs(a: PayrollInputs, b: PayrollInputs): boolean {
-  return PAYROLL_INPUT_FIELDS.every((field) => a[field] === b[field]) && !!a.aplicaIR === !!b.aplicaIR;
+  return PAYROLL_INPUT_FIELDS.every((field) => a[field] === b[field]) && !!a.aplicaIR === !!b.aplicaIR && !!a.excluirINSS === !!b.excluirINSS;
 }
 
 /**
@@ -94,7 +94,8 @@ export function validatePayrollInputs(inputs: PayrollInputs, maxDays: number): F
 export function parseFormValues(
   form: FormValues,
   maxDays: number,
-  aplicaIR = false
+  aplicaIR = false,
+  excluirINSS = false
 ): { values: PayrollInputs | null; errors: FieldErrors } {
   const errors: FieldErrors = {};
   const parsed: Partial<PayrollInputs> = {};
@@ -112,7 +113,7 @@ export function parseFormValues(
   }
   if (Object.keys(errors).length > 0) return { values: null, errors };
 
-  const values = { ...(parsed as PayrollInputs), aplicaIR };
+  const values = { ...(parsed as PayrollInputs), aplicaIR, excluirINSS };
   const fieldErrors = validatePayrollInputs(values, maxDays);
   return Object.keys(fieldErrors).length > 0 ? { values: null, errors: fieldErrors } : { values, errors: {} };
 }
@@ -130,6 +131,8 @@ export function coercePayrollInputs(raw: unknown): PayrollInputs | null {
   // Opcional por compatibilidad con clientes anteriores: si no viene, el IR no se aplica.
   if (source.aplicaIR !== undefined && typeof source.aplicaIR !== 'boolean') return null;
   result.aplicaIR = source.aplicaIR === true;
+  if (source.excluirINSS !== undefined && typeof source.excluirINSS !== 'boolean') return null;
+  result.excluirINSS = source.excluirINSS === true;
   return result as PayrollInputs;
 }
 
@@ -190,7 +193,7 @@ export interface DeduccionProblem {
 // ── Historial de cambios (para auditar, p. ej., ajustes de vacaciones en el año) ──
 
 export interface FieldChange {
-  campo: PayrollField | 'aplicaIR';
+  campo: PayrollField | 'aplicaIR' | 'excluirINSS';
   anterior: number;
   nuevo: number;
 }
@@ -205,5 +208,6 @@ export function computeInputDiffs(before: PayrollInputs | null, after: PayrollIn
     nuevo: after[field],
   }));
   if (!!before.aplicaIR !== !!after.aplicaIR) changes.push({ campo: 'aplicaIR', anterior: before.aplicaIR ? 1 : 0, nuevo: after.aplicaIR ? 1 : 0 });
+  if (!!before.excluirINSS !== !!after.excluirINSS) changes.push({ campo: 'excluirINSS', anterior: before.excluirINSS ? 1 : 0, nuevo: after.excluirINSS ? 1 : 0 });
   return changes;
 }

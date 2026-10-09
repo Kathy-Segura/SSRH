@@ -1,3 +1,4 @@
+
 import { google, sheets_v4 } from 'googleapis';
 import { calcularTotales, getPeriodoKey, PAYROLL_INPUT_FIELDS, type PayrollInputs } from './payroll-calculations';
 import { parseMoney } from './money';
@@ -212,6 +213,7 @@ export async function appendRestaurante(nombre: string): Promise<void> {
 // nunca se leen de vuelta como fuente de verdad):
 //   A periodo | B cedula | C nombre | D..L campos de PayrollInputs | M totalPagar
 //   N actualizadoEn | O enlace | P aplicaIR (1 = retiene IR; vacío/0 = solo INSS)
+//   Q excluirINSS (1 = no cotiza INSS: pasante/temporal; vacío/0 = cotiza)
 // (Antes `nombre` estaba en la columna M: createOrMigrateDeduccionesSheet mueve la columna sola.)
 // `periodo` = AAAA-MM-first|second (ver getPeriodoKey). `actualizadoEn` = ISO UTC
 // de la última escritura; sirve para detectar ediciones simultáneas. `nombre` y
@@ -221,9 +223,10 @@ export async function appendRestaurante(nombre: string): Promise<void> {
 // ─────────────────────────────────────────────────────────────────────────────
 
 const DEDUCCIONES_COLUMNS = [
-  'periodo', 'cedula', 'nombre', ...PAYROLL_INPUT_FIELDS, 'totalPagar', 'actualizadoEn', 'enlace', 'aplicaIR',
+  'periodo', 'cedula', 'nombre', ...PAYROLL_INPUT_FIELDS, 'totalPagar', 'actualizadoEn', 'enlace', 'aplicaIR', 'excluirINSS',
 ] as const;
 const COLUMN_COUNT = DEDUCCIONES_COLUMNS.length;
+const MONEY_COLUMNS = ['salarioMensual', 'otrosIngresos', 'consumo', 'prestamo', 'greceComida', 'otros', 'totalPagar'] as const;
 const REQUIRED_NUMERIC: ReadonlySet<string> = new Set(['salarioMensual', 'diasLaborados']);
 
 const columnLetter = (position: number) => {
@@ -366,35 +369,77 @@ async function createOrMigrateDeduccionesSheet(): Promise<number> {
     });
   }
 
+  // Formatos de columna (idempotente, una vez por instancia): periodo/cédula/nombre como texto (conserva ceros
+  // iniciales y evita que Sheets convierta a fecha/número) y montos con 2 decimales. Se aplican a TODA la columna
+  // (desde la fila 2, sin fin) para que las filas nuevas (appendCells) nazcan ya con formato y no lo pierdan.
+  // Las escrituras de datos usan fields='userEnteredValue', así que nunca pisan formato, colores ni validaciones.
+  const formatRequests: sheets_v4.Schema$Request[] = [
+    {
+      repeatCell: {
+        range: { sheetId, startRowIndex: 1, startColumnIndex: 0, endColumnIndex: 3 },
+        cell: { userEnteredFormat: { numberFormat: { type: 'TEXT' } } },
+        fields: 'userEnteredFormat.numberFormat',
+      },
+    },
+    ...MONEY_COLUMNS.map((column) => {
+      const index = DEDUCCIONES_COLUMNS.indexOf(column);
+      return {
+        repeatCell: {
+          range: { sheetId, startRowIndex: 1, startColumnIndex: index, endColumnIndex: index + 1 },
+          cell: { userEnteredFormat: { numberFormat: { type: 'NUMBER', pattern: '#,##0.00' } } },
+          fields: 'userEnteredFormat.numberFormat',
+        },
+      } as sheets_v4.Schema$Request;
+    }),
+  ];
   if (existing === 0) {
-    // Hoja nueva: periodo y cédula como texto (sin conversión a fecha/número) y encabezado en negrita.
-    await sheets.spreadsheets.batchUpdate({
-      spreadsheetId,
-      requestBody: {
-        requests: [
-          {
-            repeatCell: {
-              range: { sheetId, startRowIndex: 0, endRowIndex: 1, startColumnIndex: 0, endColumnIndex: COLUMN_COUNT },
-              cell: { userEnteredFormat: { textFormat: { bold: true } } },
-              fields: 'userEnteredFormat.textFormat.bold',
-            },
-          },
-          {
-            repeatCell: {
-              range: { sheetId, startRowIndex: 1, startColumnIndex: 0, endColumnIndex: 2 },
-              cell: { userEnteredFormat: { numberFormat: { type: 'TEXT' } } },
-              fields: 'userEnteredFormat.numberFormat',
-            },
-          },
-        ],
+    formatRequests.unshift({
+      repeatCell: {
+        range: { sheetId, startRowIndex: 0, endRowIndex: 1, startColumnIndex: 0, endColumnIndex: COLUMN_COUNT },
+        cell: { userEnteredFormat: { textFormat: { bold: true } } },
+        fields: 'userEnteredFormat.textFormat.bold',
       },
     });
   }
+  await sheets.spreadsheets.batchUpdate({ spreadsheetId, requestBody: { requests: formatRequests } });
 
   return sheetId;
 }
 
-const HISTORIAL_COLUMNS = ['fecha', 'periodo', 'cedula', 'nombre', 'campo', 'valorAnterior', 'valorNuevo'] as const;
+// ── Historial de deducciones (pestaña HISTORIAL_DEDUCCIONES) ─────────────────
+//
+// El orden de columnas es POSICIONAL y coincide con el encabezado visible de la hoja.
+// Escritura (appendCells), lectura y reparación usan SIEMPRE este mismo arreglo:
+// no reordenar ni insertar columnas en medio (agregar solo al final).
+//   A FECHA | B QUINCENA (clave AAAA-MM-first|second) | C CEDULA | D NOMBRE | E SALARIO MENSUAL
+//   F CONCEPTO DEDUCCION (texto legible) | G DEDUCCIONES TOTALES | H NETO A PAGAR
+//   I deduccionesTotales | J netoPagar (copias numéricas crudas de G y H)
+//   K campo | L valorAnterior | M valorNuevo (dato estructurado del cambio; lo lee la app)
+const HISTORIAL_COLUMNS = [
+  'FECHA', 'QUINCENA', 'CEDULA', 'NOMBRE', 'SALARIO MENSUAL', 'CONCEPTO DEDUCCION',
+  'DEDUCCIONES TOTALES', 'NETO A PAGAR', 'deduccionesTotales', 'netoPagar',
+  'campo', 'valorAnterior', 'valorNuevo',
+] as const;
+const HISTORIAL_LAST_COLUMN = columnLetter(HISTORIAL_COLUMNS.length);
+const HISTORIAL_MONEY_COLUMNS = ['SALARIO MENSUAL', 'DEDUCCIONES TOTALES', 'NETO A PAGAR', 'deduccionesTotales', 'netoPagar'] as const;
+const DEDUCTION_CONCEPTS = ['consumo', 'prestamo', 'greceComida', 'otros'] as const;
+
+const CONCEPTO_LABELS: Record<string, string> = {
+  consumo: 'Consumo', prestamo: 'Mi Prestamito', greceComida: 'GRECE Comida', otros: 'Otros',
+  salarioMensual: 'Cambio de salario', diasLaborados: 'Días laborados', diasVacaciones: 'Días de vacaciones',
+  horasExtra: 'Horas extra', otrosIngresos: 'Otros ingresos', aplicaIR: 'Retención de IR', excluirINSS: 'Exclusión de INSS',
+};
+const CONCEPTO_DINERO = new Set(['consumo', 'prestamo', 'greceComida', 'otros', 'salarioMensual', 'otrosIngresos']);
+const CONCEPTO_INTERRUPTOR = new Set(['aplicaIR', 'excluirINSS']);
+const formatMonto = (value: number) => `C$ ${value.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+/** Texto legible para la columna CONCEPTO DEDUCCION. */
+function conceptoTexto(change: FieldChange): string {
+  const label = CONCEPTO_LABELS[change.campo] ?? change.campo;
+  if (CONCEPTO_INTERRUPTOR.has(change.campo)) return `${label}: ${change.nuevo ? 'activada' : 'desactivada'}`;
+  if (CONCEPTO_DINERO.has(change.campo)) return `${label}: ${formatMonto(change.anterior)} → ${formatMonto(change.nuevo)}`;
+  return `${label}: ${change.anterior} → ${change.nuevo}`;
+}
 
 // Se crea recién cuando ocurre el primer cambio real (no en cada guardado): la mayoría
 // de guardados son altas nuevas, que no son "cambios" y no ameritan bitácora.
@@ -410,6 +455,20 @@ function ensureHistorialSheet(): Promise<number> {
   return ensureHistorialPromise;
 }
 
+/** Formato numérico de las columnas de dinero, desde la fila 2 y sin fin (las filas nuevas nacen con formato). */
+function historialFormatRequests(sheetId: number): sheets_v4.Schema$Request[] {
+  return HISTORIAL_MONEY_COLUMNS.map((column) => {
+    const index = HISTORIAL_COLUMNS.indexOf(column);
+    return {
+      repeatCell: {
+        range: { sheetId, startRowIndex: 1, startColumnIndex: index, endColumnIndex: index + 1 },
+        cell: { userEnteredFormat: { numberFormat: { type: 'NUMBER', pattern: '#,##0.00' } } },
+        fields: 'userEnteredFormat.numberFormat',
+      },
+    };
+  });
+}
+
 async function createHistorialSheet(): Promise<number> {
   const sheets = getSheets();
   const spreadsheetId = getSpreadsheetId();
@@ -417,7 +476,21 @@ async function createHistorialSheet(): Promise<number> {
   const meta = await sheets.spreadsheets.get({ spreadsheetId, fields: 'sheets.properties(sheetId,title)' });
   const existingSheet = meta.data.sheets?.find((s) => s.properties?.title === HISTORIAL_SHEET_NAME);
   if (existingSheet?.properties?.sheetId !== undefined && existingSheet.properties.sheetId !== null) {
-    return existingSheet.properties.sheetId;
+    const sheetId = existingSheet.properties.sheetId;
+    // 1) Encabezado: si no coincide EXACTAMENTE con el orden esperado, se reescribe completo (A1:M1).
+    const header = await sheets.spreadsheets.values.get({ spreadsheetId, range: `${HISTORIAL_SHEET_NAME}!A1:${HISTORIAL_LAST_COLUMN}1` });
+    const current = header.data.values?.[0] ?? [];
+    if (!HISTORIAL_COLUMNS.every((label, index) => String(current[index] ?? '').trim() === label)) {
+      await sheets.spreadsheets.values.update({
+        spreadsheetId, range: `${HISTORIAL_SHEET_NAME}!A1:${HISTORIAL_LAST_COLUMN}1`, valueInputOption: 'RAW',
+        requestBody: { values: [[...HISTORIAL_COLUMNS]] },
+      });
+    }
+    // 2) Filas escritas con el orden anterior (campo en la columna E): se reacomodan a las columnas correctas.
+    await repairLegacyHistorialRows(sheetId);
+    // 3) Formato numérico de las columnas de dinero.
+    await sheets.spreadsheets.batchUpdate({ spreadsheetId, requestBody: { requests: historialFormatRequests(sheetId) } });
+    return sheetId;
   }
 
   const created = await sheets.spreadsheets.batchUpdate({
@@ -449,16 +522,134 @@ async function createHistorialSheet(): Promise<number> {
             fields: 'userEnteredFormat.textFormat.bold',
           },
         },
+        ...historialFormatRequests(sheetId),
       ],
     },
   });
   return sheetId;
 }
 
-function buildHistorialRow(fecha: string, periodo: string, item: DeduccionSaveItem, change: FieldChange): sheets_v4.Schema$RowData {
-  return {
-    values: [cell(fecha), cell(periodo), cell(item.cedula), cell(item.nombre), cell(change.campo), cell(change.anterior), cell(change.nuevo)],
+interface HistorialValues {
+  fecha: string; periodo: string; cedula: string; nombre: string;
+  salario: number; campo: string; anterior: number; nuevo: number; deducciones: number; neto: number;
+}
+
+/** Celdas de una fila de historial, en el orden EXACTO de HISTORIAL_COLUMNS. */
+function historialCells(v: HistorialValues): sheets_v4.Schema$CellData[] {
+  const change: FieldChange = { campo: v.campo as FieldChange['campo'], anterior: v.anterior, nuevo: v.nuevo };
+  const byColumn: Record<(typeof HISTORIAL_COLUMNS)[number], string | number> = {
+    'FECHA': v.fecha,
+    'QUINCENA': v.periodo,
+    'CEDULA': v.cedula,
+    'NOMBRE': v.nombre,
+    'SALARIO MENSUAL': v.salario,
+    'CONCEPTO DEDUCCION': conceptoTexto(change),
+    'DEDUCCIONES TOTALES': v.deducciones,
+    'NETO A PAGAR': v.neto,
+    'deduccionesTotales': v.deducciones,
+    'netoPagar': v.neto,
+    'campo': v.campo,
+    'valorAnterior': v.anterior,
+    'valorNuevo': v.nuevo,
   };
+  return HISTORIAL_COLUMNS.map((column) => cell(byColumn[column]));
+}
+
+function buildHistorialRow(fecha: string, periodo: string, item: DeduccionSaveItem, change: FieldChange): sheets_v4.Schema$RowData {
+  const totals = calcularTotales(item.inputs);
+  return {
+    values: historialCells({
+      fecha, periodo, cedula: item.cedula, nombre: item.nombre, salario: item.inputs.salarioMensual,
+      campo: change.campo, anterior: change.anterior, nuevo: change.nuevo, deducciones: totals.totalDeducciones, neto: totals.netoPagar,
+    }),
+  };
+}
+
+/** Alta nueva: cada concepto de deducción con monto > 0 queda en el historial (antes 0), con su fecha. */
+function altaChanges(inputs: PayrollInputs): FieldChange[] {
+  const changes: FieldChange[] = DEDUCTION_CONCEPTS.filter((field) => inputs[field] > 0).map((field) => ({ campo: field, anterior: 0, nuevo: inputs[field] }));
+  if (inputs.excluirINSS) changes.push({ campo: 'excluirINSS', anterior: 0, nuevo: 1 });
+  if (inputs.aplicaIR) changes.push({ campo: 'aplicaIR', anterior: 0, nuevo: 1 });
+  return changes;
+}
+
+export interface HistorialEntry {
+  fecha: string; periodo: string; cedula: string; nombre: string; campo: string;
+  valorAnterior: number | null; valorNuevo: number | null;
+  salarioMensual: number | null; deduccionesTotales: number | null; netoPagar: number | null;
+}
+
+const CAMPOS_HISTORIAL = new Set(Object.keys(CONCEPTO_LABELS));
+
+/** Formato anterior (sin columnas de la hoja actual): el nombre del campo (consumo, otros…) estaba en la columna E. */
+function isLegacyHistorialRow(r: unknown[]): boolean {
+  return typeof r[4] === 'string' && CAMPOS_HISTORIAL.has(r[4].trim());
+}
+
+function parseHistorialRow(r: unknown[]): HistorialEntry {
+  const text = (value: unknown) => String(value ?? '');
+  const num = (value: unknown) => { const n = readNumericCell(value); return typeof n === 'number' ? n : null; };
+  const base = { fecha: text(r[0]), periodo: text(r[1]), cedula: normalizeCedula(r[2]), nombre: text(r[3]) };
+  if (isLegacyHistorialRow(r)) {
+    // Orden anterior: fecha, periodo, cedula, nombre, campo, valorAnterior, valorNuevo, salarioMensual, deduccionesTotales, netoPagar.
+    return {
+      ...base, campo: text(r[4]).trim(), valorAnterior: num(r[5]), valorNuevo: num(r[6]),
+      salarioMensual: num(r[7]), deduccionesTotales: num(r[8]), netoPagar: num(r[9]),
+    };
+  }
+  const at = (column: (typeof HISTORIAL_COLUMNS)[number]) => r[HISTORIAL_COLUMNS.indexOf(column)];
+  return {
+    ...base, campo: text(at('campo')).trim(), valorAnterior: num(at('valorAnterior')), valorNuevo: num(at('valorNuevo')),
+    salarioMensual: num(at('SALARIO MENSUAL')),
+    deduccionesTotales: num(at('DEDUCCIONES TOTALES')) ?? num(at('deduccionesTotales')),
+    netoPagar: num(at('NETO A PAGAR')) ?? num(at('netoPagar')),
+  };
+}
+
+/** Reescribe, en su misma fila, las filas con el orden anterior. Es idempotente: una fila ya corregida no se vuelve a tocar. */
+async function repairLegacyHistorialRows(sheetId: number): Promise<void> {
+  const sheets = getSheets();
+  const spreadsheetId = getSpreadsheetId();
+  const response = await sheets.spreadsheets.values.get({
+    spreadsheetId, range: `${HISTORIAL_SHEET_NAME}!A2:${HISTORIAL_LAST_COLUMN}`, valueRenderOption: 'UNFORMATTED_VALUE',
+  });
+  const requests: sheets_v4.Schema$Request[] = [];
+  ((response.data.values ?? []) as unknown[][]).forEach((r, index) => {
+    if (!isLegacyHistorialRow(r)) return;
+    const entry = parseHistorialRow(r);
+    requests.push({
+      updateCells: {
+        range: { sheetId, startRowIndex: index + 1, endRowIndex: index + 2, startColumnIndex: 0, endColumnIndex: HISTORIAL_COLUMNS.length },
+        rows: [{
+          values: historialCells({
+            fecha: entry.fecha, periodo: entry.periodo, cedula: entry.cedula, nombre: entry.nombre,
+            salario: entry.salarioMensual ?? 0, campo: entry.campo, anterior: entry.valorAnterior ?? 0, nuevo: entry.valorNuevo ?? 0,
+            deducciones: entry.deduccionesTotales ?? 0, neto: entry.netoPagar ?? 0,
+          }),
+        }],
+        fields: 'userEnteredValue',
+      },
+    });
+  });
+  for (let i = 0; i < requests.length; i += 200) {
+    await sheets.spreadsheets.batchUpdate({ spreadsheetId, requestBody: { requests: requests.slice(i, i + 200) } });
+  }
+}
+
+/** Lee la bitácora (más reciente primero). No crea la pestaña: si aún no existe devuelve []. */
+export async function getHistorial(periodo?: string, limit = 500): Promise<HistorialEntry[]> {
+  const sheets = getSheets();
+  const spreadsheetId = getSpreadsheetId();
+  const meta = await sheets.spreadsheets.get({ spreadsheetId, fields: 'sheets.properties(title)' });
+  if (!meta.data.sheets?.some((s) => s.properties?.title === HISTORIAL_SHEET_NAME)) return [];
+  const response = await sheets.spreadsheets.values.get({
+    spreadsheetId, range: `${HISTORIAL_SHEET_NAME}!A2:${HISTORIAL_LAST_COLUMN}`, valueRenderOption: 'UNFORMATTED_VALUE',
+  });
+  const entries = ((response.data.values ?? []) as unknown[][])
+    .map(parseHistorialRow)
+    .filter((entry) => entry.fecha && (!periodo || entry.periodo === periodo))
+    .sort((a, b) => b.fecha.localeCompare(a.fecha));
+  return entries.slice(0, limit);
 }
 
 // ── Lectura estricta ─────────────────────────────────────────────────────────
@@ -510,6 +701,7 @@ function parseStoredRow(cells: unknown[], rowNumber: number): StoredRow {
   }
   // Columna P: solo un 1 explícito activa el IR (filas anteriores a esta columna quedan sin IR).
   values.aplicaIR = readNumericCell(cellAt('aplicaIR')) === 1;
+  values.excluirINSS = readNumericCell(cellAt('excluirINSS')) === 1; // vacío = cotiza
   return { ...base, inputs: values as PayrollInputs, problem: null };
 }
 
@@ -580,6 +772,7 @@ function buildRowCells(periodo: string, item: DeduccionSaveItem, version: string
     if (column === 'nombre') return cell(item.nombre);
     if (column === 'totalPagar') return cell(calcularTotales(item.inputs).netoPagar);
     if (column === 'aplicaIR') return cell(item.inputs.aplicaIR ? 1 : 0);
+    if (column === 'excluirINSS') return cell(item.inputs.excluirINSS ? 1 : 0);
     if (column === 'enlace') {
       if (!linkBase) return cell('');
       const url = `${linkBase}/?empleado=${encodeURIComponent(item.cedula)}`;
@@ -659,9 +852,12 @@ export function upsertDeduccionesConDetalle(periodo: string, items: DeduccionSav
           for (const change of computeInputDiffs(current.inputs, item.inputs)) {
             historialRows.push(buildHistorialRow(version, periodo, item, change));
           }
+        } else {
+          for (const change of altaChanges(item.inputs)) historialRows.push(buildHistorialRow(version, periodo, item, change));
         }
       } else {
         appended.push({ values: cells });
+        for (const change of altaChanges(item.inputs)) historialRows.push(buildHistorialRow(version, periodo, item, change));
       }
     }
     if (appended.length > 0) requests.push({ appendCells: { sheetId, rows: appended, fields: 'userEnteredValue' } });
@@ -813,3 +1009,6 @@ async function syncSalariosHaciaFicha(
   }
   return { fichas, avisos };
 }
+
+/** Solo para pruebas unitarias (no usar desde la app). */
+export const __testing = { buildRowCells, parseStoredRow, DEDUCCIONES_COLUMNS, MONEY_COLUMNS, buildHistorialRow, parseHistorialRow, isLegacyHistorialRow, conceptoTexto, HISTORIAL_COLUMNS };

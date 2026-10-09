@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   calcularTotales, calcularINSSLaboral, getEmployeeDaysInPeriod, parseCalendarDate, PAYROLL_CONSTANTS, type PayrollInputs,
-} from '@/lib/payroll-calculations';
+} from '@/lib/payroll-calculations'
 import { coercePayrollInputs, computeInputDiffs, sameInputs, validatePayrollInputs } from '@/lib/payroll-validation';
 
 const base: PayrollInputs = {
@@ -82,5 +82,55 @@ describe('días por fechas de ingreso/egreso', () => {
   });
   it('segunda quincena de meses de 31 días vale 15', () => {
     expect(getEmployeeDaysInPeriod(null, null, 2026, 10, 'second').days).toBe(15);
+  });
+});
+
+describe('2.7 excluir INSS (pasantes / temporales)', () => {
+  it('por defecto cotiza INSS', () => {
+    expect(calcularTotales(base).inssLaboral).toBe(420);
+  });
+  it('excluirINSS=true: INSS 0, neto = devengado - otras deducciones', () => {
+    const c = calcularTotales({ ...base, excluirINSS: true, consumo: 100 });
+    expect(c.inssLaboral).toBe(0);
+    expect(c.inssPatronal).toBe(0);
+    expect(c.netoPagar).toBe(5900);
+  });
+  it('sin INSS y sin IR el neto es el devengado', () => {
+    expect(calcularTotales({ ...base, excluirINSS: true }).netoPagar).toBe(6000);
+  });
+  it('coerce / sameInputs / diffs respetan excluirINSS', () => {
+    expect(coercePayrollInputs({ ...base, excluirINSS: true })?.excluirINSS).toBe(true);
+    expect(coercePayrollInputs({ ...base, excluirINSS: 1 })).toBeNull();
+    expect(sameInputs(base, { ...base, excluirINSS: true })).toBe(false);
+    expect(computeInputDiffs(base, { ...base, excluirINSS: true })).toEqual([{ campo: 'excluirINSS', anterior: 0, nuevo: 1 }]);
+  });
+});
+
+describe('2.3 el guardado individual no pierde formato ni datos', async () => {
+  const { __testing } = await import('@/lib/googleSheets'); ('@')
+  const item = { cedula: '0010203002086', nombre: 'Prueba', version: 'v', inputs: { ...base, consumo: 150.5, aplicaIR: true, excluirINSS: true } };
+  it('la cédula con ceros iniciales viaja como texto, nunca como número', () => {
+    const cells = __testing.buildRowCells('2026-10-first', item, 'v');
+    const idx = __testing.DEDUCCIONES_COLUMNS.indexOf('cedula');
+    expect(cells[idx].userEnteredValue).toEqual({ stringValue: '0010203002086' });
+  });
+  it('las celdas solo llevan valor (sin userEnteredFormat que pise el formato de la hoja)', () => {
+    const cells = __testing.buildRowCells('2026-10-first', item, 'v');
+    expect(cells.every((c) => Object.keys(c).join() === 'userEnteredValue')).toBe(true);
+  });
+  it('ida y vuelta: lo que se escribe es lo que se lee (incluye IR e INSS)', () => {
+    const cells = __testing.buildRowCells('2026-10-first', item, 'v');
+    const raw = cells.map((c) => c.userEnteredValue?.numberValue ?? c.userEnteredValue?.stringValue ?? c.userEnteredValue?.formulaValue ?? '');
+    const parsed = __testing.parseStoredRow(raw, 2);
+    expect(parsed.problem).toBeNull();
+    expect(parsed.inputs).toEqual(item.inputs);
+    expect(parsed.cedula).toBe('0010203002086');
+  });
+  it('fila vieja sin columnas P/Q: cotiza INSS y no retiene IR', () => {
+    const cells = __testing.buildRowCells('2026-10-first', { ...item, inputs: base }, 'v').slice(0, 15);
+    const raw = cells.map((c) => c.userEnteredValue?.numberValue ?? c.userEnteredValue?.stringValue ?? c.userEnteredValue?.formulaValue ?? '');
+    const parsed = __testing.parseStoredRow(raw, 2);
+    expect(parsed.inputs?.aplicaIR).toBe(false);
+    expect(parsed.inputs?.excluirINSS).toBe(false);
   });
 });

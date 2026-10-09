@@ -47,6 +47,11 @@ export interface PayrollInputs {
    * vive en la columna P para no mover `totalPagar` (M).
    */
   aplicaIR?: boolean;
+  /**
+   * Excluye el INSS (pasantes o temporales que no cotizan). Por defecto SÍ cotizan (undefined = false).
+   * En la hoja vive en la columna Q (vacío/0 = cotiza; 1 = excluido).
+   */
+  excluirINSS?: boolean;
 }
 
 // Orden canónico de los campos editables (formulario, validación y hoja).
@@ -135,7 +140,7 @@ export function calcularTotales(inputs: PayrollInputs, ceiling = PAYROLL_CONSTAN
   const totalDevengado = money(basico + vacaciones + horasExtraMonto + inputs.otrosIngresos);
 
   // El INSS laboral se calcula una sola vez sobre el total devengado (con tope).
-  const inssLaboral = calcularINSSLaboral(totalDevengado, ceiling);
+  const inssLaboral = inputs.excluirINSS === true ? 0 : calcularINSSLaboral(totalDevengado, ceiling);
   const baseImponible = money(totalDevengado - inssLaboral);
   const irLaboral = inputs.aplicaIR === true ? calcularIR(baseImponible) : 0;
 
@@ -147,7 +152,7 @@ export function calcularTotales(inputs: PayrollInputs, ceiling = PAYROLL_CONSTAN
     inssMensualBase: inssLaboral, // alias histórico del campo
     baseImponible, irLaboral, inssLaboral, otrasDeducciones,
     totalDeducciones, netoPagar: money(totalDevengado - totalDeducciones),
-    inssPatronal: calcularINSSPatronal(totalDevengado, ceiling),
+    inssPatronal: inputs.excluirINSS === true ? 0 : calcularINSSPatronal(totalDevengado, ceiling),
     inatec: calcularINATEC(totalDevengado), ...provisiones,
   };
 }
