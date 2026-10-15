@@ -1,34 +1,196 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { RefreshCw, Search, Wallet } from 'lucide-react';
-import { formatCurrency } from '@/lib/payroll-calculations';
-import { formatDateTime, normalizeText, restaurantKey, type PayrollRow } from '@/components/payroll-shared';
+import { AlertTriangle, CheckCircle2, ChevronDown, RefreshCw, Search, Wallet } from 'lucide-react';
+import { formatCurrency, PAYROLL_CONSTANTS } from '@/lib/payroll-calculations';
+import { aggregateRows, groupByRestaurant } from '@/lib/payroll-aggregates';
+import { formatDateTime, formatPercent, normalizeText, type PayrollRow } from '@/components/payroll-shared';
 
-// Pestañas "Total por pagar" (desglose por restaurante + totales) e "Historial de deducciones".
+// Pestañas "Total por pagar" (totales + desglose por restaurante) e "Historial de deducciones".
 
-export function RestaurantBreakdown({ rows }: { rows: PayrollRow[] }) {
-  const groups = rows.reduce<Record<string, { label: string; employees: number; devengado: number; deducciones: number; neto: number }>>((acc, row) => {
-    const key = restaurantKey(row.restaurante);
-    const current = acc[key] ?? { label: (row.restaurante ?? '').trim() || 'Sin restaurante', employees: 0, devengado: 0, deducciones: 0, neto: 0 };
-    current.employees += 1;
-    current.devengado += row.calculation.totalDevengado;
-    current.deducciones += row.calculation.totalDeducciones;
-    current.neto += row.calculation.netoPagar;
-    acc[key] = current;
-    return acc;
-  }, {});
-  return <Card className="border-0 shadow-sm"><CardHeader><CardTitle className="text-base">Desglose por restaurante</CardTitle></CardHeader><CardContent className="overflow-x-auto"><table className="w-full text-sm"><thead className="border-b text-left text-muted-foreground"><tr><th className="py-2">Restaurante</th><th className="py-2 text-right">Empleados</th><th className="py-2 text-right">Devengado</th><th className="py-2 text-right">Deducciones</th><th className="py-2 text-right">Neto a pagar</th></tr></thead><tbody>{Object.entries(groups).map(([key, values]) => <tr key={key} className="border-b"><td className="py-2 font-medium">{values.label}</td><td className="py-2 text-right">{values.employees}</td><td className="py-2 text-right">{formatCurrency(values.devengado)}</td><td className="py-2 text-right">{formatCurrency(values.deducciones)}</td><td className="py-2 text-right font-semibold text-[#007EA7]">{formatCurrency(values.neto)}</td></tr>)}</tbody></table></CardContent></Card>;
+// ── Estado de cuenta: una columna de conceptos y una de montos ───────────────
+type LedgerLine = { label: string; amount: number; hint?: string; deduction?: boolean; strong?: boolean };
+
+function Ledger({ title, lines, totalLabel, total, tone }: {
+  title: string; lines: LedgerLine[]; totalLabel: string; total: number; tone: 'pay' | 'cost';
+}) {
+  return <section className="space-y-3">
+    <h3 className="text-sm font-semibold text-foreground">{title}</h3>
+    <table className="w-full text-sm">
+      <tbody>
+        {lines.map((line) => <tr key={line.label} className="border-b last:border-0">
+          <td className={cn('py-2 pr-3', line.strong ? 'font-semibold' : line.deduction && 'pl-4 text-muted-foreground')}>
+            {line.label}{line.hint && <span className="ml-2 text-xs text-muted-foreground">{line.hint}</span>}
+          </td>
+          <td className={cn('whitespace-nowrap py-2 text-right tabular-nums', line.strong && 'font-semibold', line.amount === 0 && 'text-muted-foreground')}>
+            {line.deduction && line.amount > 0 && <span className="mr-1 text-red-600">−</span>}{formatCurrency(line.amount)}
+          </td>
+        </tr>)}
+      </tbody>
+    </table>
+    <div className={cn('flex items-center justify-between gap-3 rounded-lg px-4 py-3', tone === 'pay' ? 'bg-[#007EA7] text-white' : 'bg-[#80CED7]/25 text-[#00536F]')}>
+      <span className="font-medium">{totalLabel}</span>
+      <strong className="whitespace-nowrap text-lg tabular-nums">{formatCurrency(total)}</strong>
+    </div>
+  </section>;
 }
 
-export function TotalsPayable({ rows, totals }: { rows: PayrollRow[]; totals: Record<string, number> }) {
-  const cards = [['Salario', totals.totalDevengado], ['INSS Patronal', totals.inssPatronal], ['INATEC', totals.inatec], ['Aguinaldo', totals.provisionAguinaldo], ['Indemnizaciones', totals.provisionIndemnizacion], ['Vacaciones', totals.provisionVacaciones], ['Salario por pagar', totals.netoPagar]];
-  return <Card className="border-0 shadow-sm"><CardHeader><CardTitle className="flex items-center gap-2 text-base"><Wallet className="h-4 w-4 text-[#007EA7]" />Totales por Pagar</CardTitle></CardHeader><CardContent><div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">{cards.map(([label, value]) => <div key={String(label)} className="rounded-lg bg-muted/50 p-3"><p className="text-xs text-muted-foreground">{label}</p><p className="mt-1 font-semibold">{formatCurrency(Number(value))}</p></div>)}</div><div className="mt-5 overflow-x-auto"><table className="w-full text-sm"><thead><tr className="border-b text-left text-muted-foreground"><th className="py-2">Concepto</th><th className="py-2 text-right">Monto</th></tr></thead><tbody>{[['INSS laboral retenido', totals.inssLaboral], ...(totals.irLaboral > 0 ? [['IR retenido', totals.irLaboral]] : []), ['Consumos y préstamos', totals.otrasDeducciones]].map(([label, value]) => <tr key={String(label)} className="border-b"><td className="py-2">{label}</td><td className="py-2 text-right">{formatCurrency(Number(value))}</td></tr>)}</tbody></table></div><p className="mt-3 text-xs text-muted-foreground">El resumen se calcula con los {rows.length} empleados del filtro actual y queda listo para exportar al periodo.</p></CardContent></Card>;
+export function TotalsPayable({ rows, unsavedCount = 0 }: { rows: PayrollRow[]; unsavedCount?: number }) {
+  const t = useMemo(() => aggregateRows(rows), [rows]);
+
+  const payLines: LedgerLine[] = [
+    { label: 'Total devengado', amount: t.totalDevengado, strong: true, hint: 'salario, vacaciones, extras' },
+    { label: 'INSS laboral', amount: t.inssLaboral, deduction: true, hint: formatPercent(PAYROLL_CONSTANTS.employeeInssRate) },
+    { label: 'IR laboral', amount: t.irLaboral, deduction: true },
+    { label: 'Consumo', amount: t.consumo, deduction: true },
+    { label: 'Mi Prestamito', amount: t.prestamo, deduction: true },
+    { label: 'GRECE Comida', amount: t.greceComida, deduction: true },
+    { label: 'Otras deducciones', amount: t.otros, deduction: true },
+    { label: 'Total deducciones', amount: t.totalDeducciones, strong: true },
+  ];
+  const costLines: LedgerLine[] = [
+    { label: 'Total devengado', amount: t.totalDevengado, strong: true },
+    { label: 'INSS patronal', amount: t.inssPatronal, hint: formatPercent(PAYROLL_CONSTANTS.employerInssRate) },
+    { label: 'INATEC', amount: t.inatec, hint: formatPercent(PAYROLL_CONSTANTS.inatecRate) },
+    { label: 'Aguinaldo', amount: t.provisionAguinaldo, hint: 'provisión' },
+    { label: 'Indemnización', amount: t.provisionIndemnizacion, hint: 'provisión' },
+    { label: 'Vacaciones', amount: t.provisionVacaciones, hint: 'provisión' },
+  ];
+
+  return <Card className="border-0 shadow-sm">
+    <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3 space-y-0">
+      <CardTitle className="flex items-center gap-2 text-base"><Wallet className="h-4 w-4 text-[#007EA7]" />Totales por pagar</CardTitle>
+      <div className="flex flex-wrap items-center gap-3 text-sm">
+        <Badge variant="secondary">{t.employees} empleado(s)</Badge>
+        {t.reconciles
+          ? <span className="flex items-center gap-1 text-[#007EA7]"><CheckCircle2 className="h-4 w-4" />Los totales cuadran</span>
+          : <span className="flex items-center gap-1 text-red-700"><AlertTriangle className="h-4 w-4" />Los totales no cuadran: recargue el periodo</span>}
+      </div>
+    </CardHeader>
+    <CardContent className="space-y-5">
+      {unsavedCount > 0 && <div className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+        Incluye {unsavedCount} empleado(s) que aún no están guardados en la hoja: los montos usan los valores en pantalla.
+      </div>}
+      {rows.length === 0
+        ? <p className="py-8 text-center text-sm text-muted-foreground">No hay empleados en este periodo con el filtro actual.</p>
+        : <div className="grid gap-8 lg:grid-cols-2">
+          <Ledger title="Pago a empleados" lines={payLines} totalLabel="Salario por pagar" total={t.netoPagar} tone="pay" />
+          <Ledger title="Costo para la empresa" lines={costLines} totalLabel="Costo total del periodo" total={t.costoEmpresa} tone="cost" />
+        </div>}
+      <p className="text-xs text-muted-foreground">
+        El resumen se calcula con los {rows.length} empleados del filtro actual. Las provisiones equivalen a {PAYROLL_CONSTANTS.provisionDaysPerFortnight} días de salario por quincena cada una.
+      </p>
+    </CardContent>
+  </Card>;
+}
+
+// ── Desglose por restaurante: un renglón por restaurante, con sus empleados desplegables ──
+export function RestaurantBreakdown({ rows, catalog = [] }: { rows: PayrollRow[]; catalog?: readonly string[] }) {
+  const groups = useMemo(() => groupByRestaurant(rows, catalog), [rows, catalog]);
+  const total = useMemo(() => aggregateRows(rows), [rows]);
+  const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
+  const toggle = (key: string) => setOpen((current) => {
+    const next = new Set(current);
+    if (next.has(key)) next.delete(key); else next.add(key);
+    return next;
+  });
+  const columns = 9;
+
+  return <Card className="border-0 shadow-sm">
+    <CardHeader className="space-y-1">
+      <CardTitle className="text-base">Desglose por restaurante</CardTitle>
+      <p className="text-sm text-muted-foreground">Cuánto se paga en cada restaurante según sus empleados y salarios. Abra un restaurante para ver su personal.</p>
+    </CardHeader>
+    <CardContent className="overflow-x-auto p-0">
+      <table className="w-full min-w-[880px] text-sm">
+        <thead className="border-y bg-muted/40 text-left text-xs text-muted-foreground">
+          <tr>
+            <th className="px-4 py-3 font-medium">Restaurante</th>
+            <th className="px-4 py-3 text-right font-medium">Empleados</th>
+            <th className="px-4 py-3 text-right font-medium" title="Suma de los salarios mensuales">Salarios base</th>
+            <th className="px-4 py-3 text-right font-medium">Devengado</th>
+            <th className="px-4 py-3 text-right font-medium">INSS</th>
+            <th className="px-4 py-3 text-right font-medium">IR</th>
+            <th className="px-4 py-3 text-right font-medium" title="Consumo, Mi Prestamito, GRECE y otras deducciones">Descuentos</th>
+            <th className="px-4 py-3 text-right font-medium">Total deducciones</th>
+            <th className="px-4 py-3 text-right font-medium">Neto a pagar</th>
+          </tr>
+        </thead>
+        <tbody>
+          {groups.map((group) => {
+            const isOpen = open.has(group.key);
+            const share = total.netoPagar > 0 ? (group.totals.netoPagar / total.netoPagar) * 100 : 0;
+            return <Fragment key={group.key}>
+              <tr className="border-b transition-colors hover:bg-muted/30">
+                <td className="px-4 py-3">
+                  <button type="button" className="flex items-center gap-2 text-left font-medium" aria-expanded={isOpen} onClick={() => toggle(group.key)}>
+                    <ChevronDown className={cn('h-4 w-4 shrink-0 text-muted-foreground transition-transform', !isOpen && '-rotate-90')} />
+                    {group.label}
+                  </button>
+                  <div className="ml-6 mt-1 flex flex-wrap gap-1">
+                    {group.variants.length > 1 && <Badge variant="outline" title={`Escrito de ${group.variants.length} formas en las fichas: ${group.variants.join(' | ')}`}>{group.variants.length} grafías unificadas</Badge>}
+                    {!group.inCatalog && <Badge variant="outline" className="border-amber-400 bg-amber-50 text-amber-900" title={group.variants.join(' | ') || 'Sin restaurante asignado'}>{group.variants.length === 0 ? 'Sin restaurante asignado' : 'No está en el catálogo'}</Badge>}
+                  </div>
+                </td>
+                <td className="px-4 py-3 text-right tabular-nums">{group.totals.employees}</td>
+                <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums">{formatCurrency(group.totals.salarioBase)}</td>
+                <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums">{formatCurrency(group.totals.totalDevengado)}</td>
+                <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums">{formatCurrency(group.totals.inssLaboral)}</td>
+                <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums">{formatCurrency(group.totals.irLaboral)}</td>
+                <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums">{formatCurrency(group.totals.otrasDeducciones)}</td>
+                <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums">{formatCurrency(group.totals.totalDeducciones)}</td>
+                <td className="px-4 py-3 text-right">
+                  <span className="whitespace-nowrap font-semibold tabular-nums text-[#007EA7]">{formatCurrency(group.totals.netoPagar)}</span>
+                  <div className="ml-auto mt-1 h-1 w-24 rounded bg-muted" aria-hidden="true"><div className="h-1 rounded bg-[#80CED7]" style={{ width: `${Math.min(100, share)}%` }} /></div>
+                </td>
+              </tr>
+              {isOpen && <tr className="border-b bg-muted/20">
+                <td colSpan={columns} className="px-4 py-3">
+                  <table className="w-full text-xs">
+                    <thead className="text-left text-muted-foreground"><tr>
+                      <th className="py-1.5 font-medium">Empleado</th><th className="py-1.5 font-medium">Cargo</th>
+                      <th className="py-1.5 text-right font-medium">Salario mensual</th><th className="py-1.5 text-right font-medium">Días</th>
+                      <th className="py-1.5 text-right font-medium">Devengado</th><th className="py-1.5 text-right font-medium">Deducciones</th><th className="py-1.5 text-right font-medium">Neto</th>
+                    </tr></thead>
+                    <tbody>
+                      {[...group.rows].sort((a, b) => a.nombreCompleto.localeCompare(b.nombreCompleto, 'es')).map((row) => <tr key={row.id} className="border-t">
+                        <td className="py-1.5 font-medium">{row.nombreCompleto}</td>
+                        <td className="py-1.5 text-muted-foreground">{row.cargo || '-'}</td>
+                        <td className="whitespace-nowrap py-1.5 text-right tabular-nums">{formatCurrency(row.inputs.salarioMensual)}</td>
+                        <td className="py-1.5 text-right tabular-nums">{row.inputs.diasLaborados}</td>
+                        <td className="whitespace-nowrap py-1.5 text-right tabular-nums">{formatCurrency(row.calculation.totalDevengado)}</td>
+                        <td className="whitespace-nowrap py-1.5 text-right tabular-nums">{formatCurrency(row.calculation.totalDeducciones)}</td>
+                        <td className="whitespace-nowrap py-1.5 text-right font-medium tabular-nums text-[#007EA7]">{formatCurrency(row.calculation.netoPagar)}</td>
+                      </tr>)}
+                    </tbody>
+                  </table>
+                </td>
+              </tr>}
+            </Fragment>;
+          })}
+          {groups.length === 0 && <tr><td colSpan={columns} className="px-4 py-10 text-center text-muted-foreground">No hay empleados en este periodo con el filtro actual.</td></tr>}
+        </tbody>
+        {groups.length > 0 && <tfoot className="bg-muted/70 font-semibold">
+          <tr>
+            <td className="px-4 py-3">Total ({groups.length} restaurante{groups.length === 1 ? '' : 's'})</td>
+            <td className="px-4 py-3 text-right tabular-nums">{total.employees}</td>
+            <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums">{formatCurrency(total.salarioBase)}</td>
+            <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums">{formatCurrency(total.totalDevengado)}</td>
+            <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums">{formatCurrency(total.inssLaboral)}</td>
+            <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums">{formatCurrency(total.irLaboral)}</td>
+            <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums">{formatCurrency(total.otrasDeducciones)}</td>
+            <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums">{formatCurrency(total.totalDeducciones)}</td>
+            <td className="whitespace-nowrap px-4 py-3 text-right tabular-nums text-[#007EA7]">{formatCurrency(total.netoPagar)}</td>
+          </tr>
+        </tfoot>}
+      </table>
+    </CardContent>
+  </Card>;
 }
 
 // ── 2.6 Historial de deducciones ─────────────────────────────────────────────

@@ -37,6 +37,8 @@ import {
 import { normalizeText, restaurantKey, type PayrollRow, type SaveOutcome } from '@/components/payroll-shared';
 import { PayrollDetail } from '@/components/payroll-detail';
 import { DeductionHistory, RestaurantBreakdown, TotalsPayable } from '@/components/payroll-reports';
+import { PayrollPrintReport } from '@/components/payroll-print';
+import { aggregateRows } from '@/lib/payroll-aggregates';
 
 // Solo se usa si falla la carga desde /api/restaurantes (mismo patrón que
 // employee-form-modal.tsx / employee-modal.tsx).
@@ -139,7 +141,9 @@ export function PayrollModule({ employees, onEmployeesChanged }: {
   // Salarios de ficha ya actualizados desde esta pantalla, mientras la página no recargue la lista de empleados.
   const [fichaOverrides, setFichaOverrides] = useState<Record<string, number>>({});
   const previousSalaries = useRef<Map<string, string> | null>(null);
-  const skipEmployeeSync = useRef(false);
+  // Salarios que esta misma pantalla acaba de escribir en la ficha: al llegar en la lista de empleados no hace falta recargar.
+  const ownSalaryWrites = useRef<Map<string, number>>(new Map());
+  const [printing, setPrinting] = useState(false);
 
   const yearNumber = Number(year);
   const monthNumber = Number(month);
@@ -212,10 +216,26 @@ export function PayrollModule({ employees, onEmployeesChanged }: {
     const current = new Map(employees.map((employee) => [normalizeCedula(employee.cedula), String(employee.salario ?? '')] as const));
     const previous = previousSalaries.current;
     previousSalaries.current = current;
-    setFichaOverrides({});
+
+    // El salario escrito desde esta pantalla se sigue mostrando hasta que la ficha lo alcance (o cambie por otra vía).
+    setFichaOverrides((overrides) => {
+      const next = { ...overrides };
+      let dropped = false;
+      Object.entries(overrides).forEach(([key, salary]) => {
+        const now = parseMoney(current.get(key) ?? '');
+        const before = previous ? parseMoney(previous.get(key) ?? '') : null;
+        if (now === salary || (previous && before !== now)) { delete next[key]; dropped = true; }
+      });
+      return dropped ? next : overrides;
+    });
+
     if (!previous) return;
-    if (skipEmployeeSync.current) { skipEmployeeSync.current = false; return; }
-    const changed = [...current].filter(([key, value]) => previous.has(key) && previous.get(key) !== value);
+    const changed = [...current].filter(([key, value]) => {
+      if (!previous.has(key) || previous.get(key) === value) return false;
+      const own = ownSalaryWrites.current.get(key);
+      if (own !== undefined && parseMoney(value) === own) { ownSalaryWrites.current.delete(key); return false; }
+      return true;
+    });
     if (changed.length > 0) {
       setNotice({ kind: 'success', text: `Se actualizó el salario de ${changed.length} empleado(s) desde Empleados; se recargó el periodo.` });
       setReloadToken((token) => token + 1);
@@ -334,19 +354,7 @@ export function PayrollModule({ employees, onEmployeesChanged }: {
   // Al cambiar filtros o tamaño de página, volver a la primera página
   useEffect(() => { setPage(1); }, [restaurant, query, month, year, fortnight, pageSize]);
 
-  const totals = rows.reduce((acc, row) => ({
-    totalDevengado: acc.totalDevengado + row.calculation.totalDevengado,
-    inssLaboral: acc.inssLaboral + row.calculation.inssLaboral,
-    irLaboral: acc.irLaboral + row.calculation.irLaboral,
-    otrasDeducciones: acc.otrasDeducciones + row.calculation.otrasDeducciones,
-    totalDeducciones: acc.totalDeducciones + row.calculation.totalDeducciones,
-    netoPagar: acc.netoPagar + row.calculation.netoPagar,
-    inssPatronal: acc.inssPatronal + row.calculation.inssPatronal,
-    inatec: acc.inatec + row.calculation.inatec,
-    provisionAguinaldo: acc.provisionAguinaldo + row.calculation.provisionAguinaldo,
-    provisionIndemnizacion: acc.provisionIndemnizacion + row.calculation.provisionIndemnizacion,
-    provisionVacaciones: acc.provisionVacaciones + row.calculation.provisionVacaciones,
-  }), { totalDevengado: 0, inssLaboral: 0, irLaboral: 0, otrasDeducciones: 0, totalDeducciones: 0, netoPagar: 0, inssPatronal: 0, inatec: 0, provisionAguinaldo: 0, provisionIndemnizacion: 0, provisionVacaciones: 0 });
+  const totals = useMemo(() => aggregateRows(rows), [rows]);
 
   const reloadPeriod = () => { setNotice(null); setReloadToken((token) => token + 1); };
 
@@ -421,7 +429,8 @@ export function PayrollModule({ employees, onEmployeesChanged }: {
       const avisos: string[] = Array.isArray(data.avisos) ? data.avisos : [];
       if (fichas.length > 0) {
         setFichaOverrides((current) => ({ ...current, ...Object.fromEntries(fichas.map((ficha) => [ficha.cedula, ficha.salario])) }));
-        if (onEmployeesChanged) { skipEmployeeSync.current = true; onEmployeesChanged(); }
+        fichas.forEach((ficha) => ownSalaryWrites.current.set(normalizeCedula(ficha.cedula), ficha.salario));
+        onEmployeesChanged?.();
         // Aviso para cualquier otra parte de la app (p. ej. la lista del módulo Empleados) que quiera recargarse.
         window.dispatchEvent(new CustomEvent('empleados:actualizados', { detail: { cedulas: fichas.map((ficha) => ficha.cedula) } }));
       }
@@ -506,7 +515,7 @@ export function PayrollModule({ employees, onEmployeesChanged }: {
       </div>
       <div className="flex flex-col items-start gap-1 md:items-end">
         <div className="flex gap-2">
-          <Button variant="outline" className="gap-2" onClick={() => window.print()}><Printer className="h-4 w-4" />Imprimir</Button>
+          <Button variant="outline" className="gap-2" disabled={!sheetReady || rows.length === 0 || printing} onClick={() => setPrinting(true)}><Printer className="h-4 w-4" />Imprimir</Button>
           <Button className="gap-2 bg-[#80CED7] text-black hover:bg-[#007EA7]" disabled={isSaving || !sheetReady || unsavedCount === 0} onClick={handleGuardarPeriodo}>
             <Save className="h-4 w-4" />{isSaving ? 'Guardando...' : `Guardar cambios (${unsavedCount})`}
           </Button>
@@ -639,8 +648,8 @@ export function PayrollModule({ employees, onEmployeesChanged }: {
       </TabsContent>
 
       <TabsContent value="totals" className="mt-4 space-y-6">
-        <TotalsPayable rows={rows} totals={totals} />
-        <RestaurantBreakdown rows={rows} />
+        <TotalsPayable rows={rows} unsavedCount={unsavedCount} />
+        <RestaurantBreakdown rows={rows} catalog={restaurantes} />
       </TabsContent>
 
       <TabsContent value="history" className="mt-4">
@@ -675,5 +684,15 @@ export function PayrollModule({ employees, onEmployeesChanged }: {
           : <p className="py-8 text-center text-muted-foreground">No hay empleado seleccionado.</p>}
       </DialogContent>
     </Dialog>
+
+    {printing && <PayrollPrintReport
+      rows={rows}
+      catalog={restaurantes}
+      periodTitle={`${fortnight === 'first' ? '1.ª' : '2.ª'} quincena de ${new Date(yearNumber, monthNumber - 1).toLocaleString('es', { month: 'long' })} ${yearNumber}`}
+      periodLabel={`${period.start.toLocaleDateString('es-NI')} — ${period.end.toLocaleDateString('es-NI')}`}
+      restaurantFilter={restaurant}
+      unsavedCount={unsavedCount}
+      onDone={() => setPrinting(false)}
+    />}
   </div>;
 }

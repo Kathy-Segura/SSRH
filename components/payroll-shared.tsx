@@ -12,10 +12,12 @@ export const formatDateTime = (iso: string | null | undefined) => {
   return Number.isNaN(date.getTime()) ? null : date.toLocaleString('es-NI', { dateStyle: 'short', timeStyle: 'short' });
 };
 
-// Clave para agrupar/comparar restaurantes: "Barrio Café", "BARRIO CAFE " y "Barrio Café" (con la é escrita
-// de otra forma) son el mismo restaurante. Antes se agrupaba por el texto exacto y salían duplicados.
-export const restaurantKey = (name: string | undefined) =>
-  String(name ?? '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim().toUpperCase() || 'SIN RESTAURANTE';
+// Clave para agrupar/comparar restaurantes: vive en lib/payroll-aggregates (con sus pruebas) y se re-exporta aquí
+// para no cambiar los imports existentes. Ignora mayúsculas, tildes, signos y espacios repetidos.
+export { restaurantKey } from '@/lib/payroll-aggregates';
+
+// 0.07 * 100 da 7.000000000000001 en JavaScript: los porcentajes se redondean antes de mostrarse.
+export const formatPercent = (rate: number) => `${Math.round(rate * 1000) / 10}%`;
 
 export type PayrollRow = Employee & {
   cedulaKey: string;

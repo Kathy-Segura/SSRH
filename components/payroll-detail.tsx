@@ -9,7 +9,7 @@ import { Separator } from '@/components/ui/separator';
 import { Eraser, RefreshCw, Save } from 'lucide-react';
 import { calcularTotales, formatCurrency, PAYROLL_CONSTANTS, type PayrollInputs } from '@/lib/payroll-calculations';
 import { inputsToForm, parseFormValues, sameInputs, type FormValues, type PayrollField } from '@/lib/payroll-validation';
-import { formatDateTime, type PayrollRow, type SaveOutcome } from '@/components/payroll-shared';
+import { formatDateTime, formatPercent, type PayrollRow, type SaveOutcome } from '@/components/payroll-shared';
 
 // ── Campos del formulario del detalle, en el orden en que se muestran ────────
 type FieldMeta = { field: PayrollField; title: string; hint: string; prefix?: string; suffix?: string; wide?: boolean };
@@ -165,7 +165,7 @@ export function PayrollDetail({ row, periodLabel, fortnightLabel, canPersist, is
 
   const savedAt = formatDateTime(row.status === 'saved' || row.status === 'draft' || row.status === 'conflict' ? row.version : null);
   const deductionRows: { label: string; amount: number }[] = c && parsed.values ? [
-    ...(c.inssLaboral > 0 ? [{ label: `INSS laboral (${PAYROLL_CONSTANTS.employeeInssRate * 100}%)`, amount: c.inssLaboral }] : []),
+    ...(c.inssLaboral > 0 ? [{ label: `INSS laboral (${formatPercent(PAYROLL_CONSTANTS.employeeInssRate)})`, amount: c.inssLaboral }] : []),
     ...(c.irLaboral > 0 ? [{ label: 'IR laboral', amount: c.irLaboral }] : []),
     ...(['consumo', 'prestamo', 'greceComida', 'otros'] as const)
       .filter((field) => parsed.values![field] > 0)
@@ -274,7 +274,7 @@ export function PayrollDetail({ row, periodLabel, fortnightLabel, canPersist, is
             <BreakdownBlock
               title="Retenciones y deducciones" totalLabel="Total deducciones" total={-c.totalDeducciones}
               lines={[
-                [excluirINSS ? 'INSS Laboral (no cotiza)' : `INSS Laboral (${PAYROLL_CONSTANTS.employeeInssRate * 100}%)`, -c.inssLaboral],
+                [excluirINSS ? 'INSS Laboral (no cotiza)' : `INSS Laboral (${formatPercent(PAYROLL_CONSTANTS.employeeInssRate)})`, -c.inssLaboral],
                 ...(aplicaIR ? [['IR Laboral', -c.irLaboral] as [string, number]] : []),
                 ['Otras deducciones', -c.otrasDeducciones],
               ]}
