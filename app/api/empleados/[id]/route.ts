@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { updateEmpleado, deleteEmpleado, syncSalarioEnDeducciones } from '@/lib/googleSheets';
 import { parseMoney } from '@/lib/money';
+import { isMotivoSalida } from '@/lib/motivos-salida';
 // src/app/api/empleados/[id]/route.ts
 
 export async function PUT(
@@ -25,6 +26,10 @@ export async function PUT(
         { error: 'Nombre completo y cédula son requeridos' },
         { status: 400 }
       );
+    }
+
+    if (body.motivoSalida && !isMotivoSalida(body.motivoSalida)) {
+      return NextResponse.json({ error: 'Motivo de salida inválido' }, { status: 400 });
     }
 
     // Salario como número (no como texto) para que la hoja lo guarde como número y las fórmulas funcionen.
@@ -54,6 +59,7 @@ export async function PUT(
       body.fechaRetiro      || '',
       body.estadoCivil      || '',
       body.estado           || 'activo',
+      body.motivoSalida     || '', // X: Motivo Salida
     ];
 
     await updateEmpleado(rowIndex, fila);

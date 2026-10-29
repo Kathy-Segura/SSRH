@@ -2,6 +2,7 @@
 import { google, sheets_v4 } from 'googleapis';
 import { calcularTotales, getPeriodoKey, PAYROLL_INPUT_FIELDS, type PayrollInputs } from './payroll-calculations';
 import { parseMoney } from './money';
+import { MOTIVOS_SALIDA } from './motivos-salida';
 import {
   computeInputDiffs,
   LEGACY_VERSION,
@@ -14,6 +15,13 @@ import {
 } from './payroll-validation';
 
 const SHEET_NAME = 'INDETERMINADO';
+
+// Hoja INDETERMINADO: A..W eran las 23 columnas originales; X = MOTIVO SALIDA (columna 24, índice 23).
+// Si se agrega otra columna al final, actualizar estas dos constantes.
+const EMPLEADOS_LAST_COLUMN = 'X';
+const MOTIVO_SALIDA_COLUMN_INDEX = 23;
+const MOTIVO_SALIDA_HEADER = 'MOTIVO SALIDA';
+const CARGO_HEADER = 'Cargo'; // encabezado de la columna B de la hoja RESTAURANTES
 const RESTAURANTES_SHEET_NAME = 'RESTAURANTES';
 const DEDUCCIONES_SHEET_NAME = 'DEDUCCIONES';
 const HISTORIAL_SHEET_NAME = 'HISTORIAL_DEDUCCIONES';
@@ -80,30 +88,33 @@ const getSpreadsheetId = () => {
 // ----- EMPLEADOS -----
 
 export async function getEmpleados(): Promise<string[][]> {
+  await ensureEmpleadosSchema();
   const auth = getAuth();
   const sheets = google.sheets({ version: 'v4', auth });
 
   const response = await sheets.spreadsheets.values.get({
     spreadsheetId: process.env.GOOGLE_SHEET_ID,
-    range: `${SHEET_NAME}!A2:W`,
+    range: `${SHEET_NAME}!A2:${EMPLEADOS_LAST_COLUMN}`,
   });
 
   return (response.data.values as string[][]) || [];
 }
 
 export async function appendEmpleado(fila: string[]): Promise<void> {
+  await ensureEmpleadosSchema();
   const auth = getAuth();
   const sheets = google.sheets({ version: 'v4', auth });
 
   await sheets.spreadsheets.values.append({
     spreadsheetId: process.env.GOOGLE_SHEET_ID,
-    range: `${SHEET_NAME}!A:W`,
+    range: `${SHEET_NAME}!A:${EMPLEADOS_LAST_COLUMN}`,
     valueInputOption: 'USER_ENTERED',
     requestBody: { values: [fila] },
   });
 }
 
 export async function updateEmpleado(rowIndex: number, fila: string[]): Promise<void> {
+  await ensureEmpleadosSchema();
   const auth = getAuth();
   const sheets = google.sheets({ version: 'v4', auth });
 
@@ -111,7 +122,7 @@ export async function updateEmpleado(rowIndex: number, fila: string[]): Promise<
 
   await sheets.spreadsheets.values.update({
     spreadsheetId: process.env.GOOGLE_SHEET_ID,
-    range: `${SHEET_NAME}!A${sheetRow}:W${sheetRow}`,
+    range: `${SHEET_NAME}!A${sheetRow}:${EMPLEADOS_LAST_COLUMN}${sheetRow}`,
     valueInputOption: 'USER_ENTERED',
     requestBody: { values: [fila] },
   });
@@ -202,6 +213,138 @@ export async function appendRestaurante(nombre: string): Promise<void> {
     range: `${RESTAURANTES_SHEET_NAME}!A${nextRow}`,
     valueInputOption: 'USER_ENTERED',
     requestBody: { values: [[nombre]] },
+  });
+}
+
+// ----- ESQUEMA: MOTIVO SALIDA (INDETERMINADO!X) y CARGO (RESTAURANTES!B) -----
+
+// Idempotente y una sola vez por instancia del servidor (mismo patrón que ensureDeduccionesSheet).
+// - Crea el encabezado MOTIVO SALIDA en X1 y, solo al crearlo, le pone una lista desplegable con los
+//   3 motivos fijos. Si la columna ya existía, no se toca su formato ni sus validaciones.
+// - Crea el encabezado Cargo en RESTAURANTES!B1 si falta.
+// Si el encabezado existe pero es otro, se detiene todo: la lectura/escritura es posicional.
+let empleadosSchemaPromise: Promise<void> | null = null;
+
+function ensureEmpleadosSchema(): Promise<void> {
+  if (!empleadosSchemaPromise) {
+    empleadosSchemaPromise = createEmpleadosSchema().catch((error) => {
+      empleadosSchemaPromise = null; // permite reintentar tras un fallo transitorio
+      throw error;
+    });
+  }
+  return empleadosSchemaPromise;
+}
+
+async function createEmpleadosSchema(): Promise<void> {
+  const sheets = getSheets();
+  const spreadsheetId = getSpreadsheetId();
+
+  const response = await sheets.spreadsheets.values.batchGet({
+    spreadsheetId,
+    ranges: [`${SHEET_NAME}!${EMPLEADOS_LAST_COLUMN}1`, `${RESTAURANTES_SHEET_NAME}!B1`],
+  });
+  const [motivoHeader, cargoHeader] = [0, 1].map((i) =>
+    String(response.data.valueRanges?.[i]?.values?.[0]?.[0] ?? '').trim()
+  );
+
+  const motivoKey = motivoHeader.toLowerCase();
+  if (!motivoHeader) {
+    await sheets.spreadsheets.values.update({
+      spreadsheetId,
+      range: `${SHEET_NAME}!${EMPLEADOS_LAST_COLUMN}1`,
+      valueInputOption: 'RAW',
+      requestBody: { values: [[MOTIVO_SALIDA_HEADER]] },
+    });
+    const sheetId = await getSheetIdByName(sheets, SHEET_NAME);
+    await sheets.spreadsheets.batchUpdate({
+      spreadsheetId,
+      requestBody: {
+        requests: [{
+          setDataValidation: {
+            range: {
+              sheetId,
+              startRowIndex: 1,
+              startColumnIndex: MOTIVO_SALIDA_COLUMN_INDEX,
+              endColumnIndex: MOTIVO_SALIDA_COLUMN_INDEX + 1,
+            },
+            rule: {
+              condition: { type: 'ONE_OF_LIST', values: MOTIVOS_SALIDA.map((value) => ({ userEnteredValue: value })) },
+              showCustomUi: true,
+              strict: true,
+            },
+          },
+        }],
+      },
+    });
+  } else if (motivoKey !== 'motivo salida' && motivoKey !== 'motivo de salida') {
+    throw new SheetConfigError(
+      `La hoja ${SHEET_NAME} tiene "${motivoHeader}" en la columna ${EMPLEADOS_LAST_COLUMN} y se esperaba "${MOTIVO_SALIDA_HEADER}" o una columna vacía.`
+    );
+  }
+
+  if (!cargoHeader) {
+    await sheets.spreadsheets.values.update({
+      spreadsheetId,
+      range: `${RESTAURANTES_SHEET_NAME}!B1`,
+      valueInputOption: 'RAW',
+      requestBody: { values: [[CARGO_HEADER]] },
+    });
+  } else if (cargoHeader.toLowerCase() !== CARGO_HEADER.toLowerCase()) {
+    throw new SheetConfigError(
+      `La hoja ${RESTAURANTES_SHEET_NAME} tiene "${cargoHeader}" en la columna B y se esperaba "${CARGO_HEADER}" o una columna vacía.`
+    );
+  }
+}
+
+// ----- CARGOS -----
+// Fuente: RESTAURANTES!B (cargos guardados desde la app) + INDETERMINADO!E (cargos ya usados por empleados).
+// Se comparan sin distinguir mayúsculas ni espacios repetidos; se conserva la primera forma encontrada.
+
+const cargoKey = (value: string) => value.trim().replace(/\s+/g, ' ').toLowerCase();
+
+export async function getCargos(): Promise<string[]> {
+  await ensureEmpleadosSchema();
+  const sheets = getSheets();
+
+  const response = await sheets.spreadsheets.values.batchGet({
+    spreadsheetId: getSpreadsheetId(),
+    ranges: [`${RESTAURANTES_SHEET_NAME}!B2:B`, `${SHEET_NAME}!E2:E`],
+  });
+
+  const seen = new Map<string, string>();
+  for (const range of response.data.valueRanges ?? []) {
+    for (const fila of (range.values ?? []) as string[][]) {
+      const valor = String(fila[0] ?? '').trim().replace(/\s+/g, ' ');
+      if (valor && !seen.has(cargoKey(valor))) seen.set(cargoKey(valor), valor);
+    }
+  }
+  return [...seen.values()].sort((a, b) => a.localeCompare(b, 'es'));
+}
+
+/**
+ * Guarda un cargo nuevo en RESTAURANTES!B. Si ya existe (en la hoja de restaurantes o en algún empleado)
+ * no escribe nada y devuelve el nombre oficial con `existed: true`.
+ * Se escribe como texto (RAW) para que Sheets no lo interprete como fórmula.
+ */
+export function appendCargo(nombre: string): Promise<{ nombre: string; existed: boolean }> {
+  return enqueueWrite(async () => {
+    const existentes = await getCargos();
+    const coincidencia = existentes.find((cargo) => cargoKey(cargo) === cargoKey(nombre));
+    if (coincidencia) return { nombre: coincidencia, existed: true };
+
+    const sheets = getSheets();
+    const spreadsheetId = getSpreadsheetId();
+    // Se calcula la fila sobre la columna B (no sobre A) porque ambas columnas tienen largos distintos.
+    const response = await sheets.spreadsheets.values.get({ spreadsheetId, range: `${RESTAURANTES_SHEET_NAME}!B:B` });
+    const nextRow = (response.data.values?.length ?? 0) + 1;
+
+    await sheets.spreadsheets.values.update({
+      spreadsheetId,
+      range: `${RESTAURANTES_SHEET_NAME}!B${nextRow}`,
+      valueInputOption: 'RAW',
+      requestBody: { values: [[nombre]] },
+    });
+    return { nombre, existed: false };
   });
 }
 

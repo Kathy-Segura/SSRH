@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getEmpleados, appendEmpleado } from '@/lib/googleSheets';
+import { isMotivoSalida } from '@/lib/motivos-salida';
 
 // Sin esto, Next puede servir la lista de empleados guardada en caché y un salario recién actualizado
 // (por ejemplo desde Deducciones) no se vería en el módulo de Empleados.
@@ -50,6 +51,9 @@ export async function GET() {
           fechaRetiro,
           estadoCivil: fila[21] || 'soltero',
 
+          // Columna X = Motivo de salida (puede venir vacía; los valores válidos están en MOTIVOS_SALIDA)
+          motivoSalida: (fila[23] || '').toString().trim(),
+
           // Prioridad:
           // 1. Si tiene fecha de retiro => inactivo
           // 2. Si no tiene fecha de retiro => usar valor guardado en la hoja
@@ -90,6 +94,10 @@ export async function POST(request: Request) {
       );
     }
 
+    if (body.motivoSalida && !isMotivoSalida(body.motivoSalida)) {
+      return NextResponse.json({ error: 'Motivo de salida inválido' }, { status: 400 });
+    }
+
     // Armar la fila en el mismo orden que los encabezados del Sheet
     const fila = [
       body.nombreCompleto,              // A: Nombres y Apellidos
@@ -114,7 +122,8 @@ export async function POST(request: Request) {
       body.diasTrabajados     || '0',   // S: Días Trabajados
       body.fechaRetiro        || '',    // T: Fecha Retiro
       body.estadoCivil        || '',    // U: Estado Civil
-      body.estado             || 'activo', // V: Estado
+      body.estado             || 'activo', // W: Estado
+      body.motivoSalida       || '',    // X: Motivo Salida
     ];
 
     await appendEmpleado(fila);

@@ -21,6 +21,10 @@ import { FileText } from 'lucide-react';
 import { PreviewButton } from '@/components/preview-button-pdf';
 import { PayrollModule } from '@/components/payroll-module';
 
+// Compara textos sin distinguir mayúsculas ni espacios repetidos (cargo, motivo de salida)
+const normalizeText = (value?: string): string =>
+  (value ?? '').trim().replace(/\s+/g, ' ').toLowerCase();
+
 // funcion contadora de indices en el campo cedula
 const getMesDesdeCedula = (cedula: string): string => {
   const tieneGuion = cedula.includes('-');
@@ -28,11 +32,9 @@ const getMesDesdeCedula = (cedula: string): string => {
 };
 
 /**
- * Extrae el mes de una fecha en formato d/m/aaaa o dd/mm/aaaa
- * (también soporta "-" como separador).
- * A diferencia de getMesDesdeCedula, aquí NO se puede usar substring
- * de índice fijo porque el día puede venir sin cero a la izquierda,
- * lo que desfasa las posiciones.
+ * Extrae el mes de una fecha en formato d/m/aaaa o dd/mm/aaaa (también soporta "-" como separador).
+ * A diferencia de getMesDesdeCedula, aquí NO se puede usar substring de índice fijo porque el día
+ * puede venir sin cero a la izquierda, lo que desfasa las posiciones.
  */
 function getMesDesdeFecha(fecha: string): string {
   if (!fecha) return '';
@@ -51,6 +53,7 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [restaurantes, setRestaurantes] = useState<string[]>([]);
+  const [cargos, setCargos] = useState<string[]>([]);
 
   // ─── Estado de UI ──────────────────────────────────────────────────────────
   const [filters, setFilters] = useState<FilterState>({
@@ -60,6 +63,8 @@ export default function Home() {
     estadoCivil: '',
     estado: '',
     restaurante: '',
+    cargo: '',
+    motivoSalida: '',
     mescumple: '',
     mesIngreso: ''
   });
@@ -103,7 +108,23 @@ export default function Home() {
       .then((res) => res.json())
       .then((data) => setRestaurantes(data.restaurantes ?? []))
       .catch((err) => console.error('Error al cargar restaurantes:', err));
+
+    fetch('/api/cargos')
+      .then((res) => res.json())
+      .then((data) => setCargos(data.cargos ?? []))
+      .catch((err) => console.error('Error al cargar cargos:', err));
   }, []);
+
+  // Cargos para el filtro: los de la hoja + los de los empleados cargados (así un cargo nuevo
+  // registrado en una ficha aparece sin recargar la página). Sin duplicados, sin distinguir mayúsculas.
+  const cargosDisponibles = useMemo(() => {
+    const vistos = new Map<string, string>();
+    for (const cargo of [...cargos, ...employees.map((employee) => employee.cargo)]) {
+      const limpio = (cargo ?? '').trim().replace(/\s+/g, ' ');
+      if (limpio && !vistos.has(normalizeText(limpio))) vistos.set(normalizeText(limpio), limpio);
+    }
+    return [...vistos.values()].sort((a, b) => a.localeCompare(b, 'es'));
+  }, [cargos, employees]);
 
   // ─── Filtrar empleados ─────────────────────────────────────────────────────
   const filteredEmployees = useMemo(() => {
@@ -129,6 +150,14 @@ export default function Home() {
         !filters.restaurante ||
         filters.restaurante === 'all' ||
         employee.restaurante === filters.restaurante;
+      const matchCargo =
+        !filters.cargo ||
+        filters.cargo === 'all' ||
+        normalizeText(employee.cargo) === normalizeText(filters.cargo);  
+      const matchMotivoSalida =
+        !filters.motivoSalida ||
+        filters.motivoSalida === 'all' ||
+        normalizeText(employee.motivoSalida) === normalizeText(filters.motivoSalida);
 
       // ← Ahora usa la función en lugar del substring fijo
       const mesCedula = getMesDesdeCedula(employee.cedula);
@@ -151,6 +180,8 @@ export default function Home() {
         matchEstadoCivil &&
         matchEstado &&
         matchRestaurante &&
+        matchCargo &&
+        matchMotivoSalida &&
         matchMesCumple &&
         matchMesIngreso
       );
@@ -267,6 +298,8 @@ export default function Home() {
       estadoCivil: '',
       estado: '',
       restaurante: '',
+      cargo: '',
+      motivoSalida: '',
       mescumple: '',
       mesIngreso: ''
     });
@@ -287,6 +320,26 @@ export default function Home() {
     }
 
     setRestaurantes((prev) => [...prev, nombre]);
+  };
+
+  // guarda el nuevo cargo en la columna Cargo de la hoja RESTAURANTES y devuelve el nombre oficial
+  const handleAddCargo = async (nombre: string): Promise<string> => {
+    const res = await fetch('/api/cargos', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ nombre }),
+    });
+
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error(data.error || 'No se pudo guardar el cargo');
+    }
+
+    const guardado = String(data.nombre ?? nombre);
+    setCargos((prev) =>
+      prev.some((cargo) => normalizeText(cargo) === normalizeText(guardado)) ? prev : [...prev, guardado]
+    );
+    return guardado;
   };
 
   const handlePageChange = (page: number) => setCurrentPage(page);
@@ -375,6 +428,8 @@ export default function Home() {
                     onClear={handleClearFilters}
                     restaurantes={restaurantes}
                     onAddRestaurante={handleAddRestaurante}
+                    cargos={cargosDisponibles}
+                    onAddCargo={handleAddCargo}
                   />
                 )}
               </div>

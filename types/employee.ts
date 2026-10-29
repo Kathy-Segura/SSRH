@@ -21,4 +21,5 @@ export interface Employee {
   observaciones: string;
   estadoCivil: 'soltero' | 'casado' | 'divorciado' | 'viudo';
   estado: 'activo' | 'inactivo';
+  motivoSalida: 'Renuncia con preaviso' | 'Renuncia inmediata' | 'Despido'
 }

@@ -7,7 +7,9 @@
   --INSS
   --ESTADO
   --ESTADO CIVIL
-  --RESTAURANTE
+  --RESTAURANTE (dinámico: se pueden agregar nuevos)
+  --CARGO (dinámico: se pueden agregar nuevos)
+  --MOTIVO DE SALIDA (3 opciones fijas)
   --MES(CUMPLEAÑOS)
   --MES(INGRESO)
 */
@@ -23,6 +25,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { FilterState } from '@/types/filter';
+import { MOTIVOS_SALIDA } from '@/lib/motivos-salida';
 import { Search, X, Plus, Check, Loader2 } from 'lucide-react';
 
 interface FilterBarProps {
@@ -40,6 +43,13 @@ interface FilterBarProps {
    * propague a este componente y a cualquier otro filtro que lo use.
    */
   onAddRestaurante: (nombre: string) => Promise<void>;
+  /** Lista de cargos (hoja RESTAURANTES, columna Cargo + cargos ya usados por empleados). Viene del padre. */
+  cargos: string[];
+  /**
+   * Persiste el nuevo cargo (RESTAURANTES!B) y devuelve el nombre OFICIAL con el que quedó guardado
+   * (si ya existía con otras mayúsculas devuelve el existente). Debe lanzar un error si falla.
+   */
+  onAddCargo: (nombre: string) => Promise<string>;
 }
 
 const MESES = [
@@ -57,36 +67,60 @@ const MESES = [
   { value: '12', label: 'Diciembre' },
 ];
 
-export function FilterBar({
-  filters,
-  onFiltersChange,
-  onSearch,
-  onClear,
-  restaurantes,
-  onAddRestaurante,
-}: FilterBarProps) {
-  const [showAddRestaurante, setShowAddRestaurante] = useState(false);
-  const [nuevoRestaurante, setNuevoRestaurante] = useState('');
+const sameName = (a: string, b: string) =>
+  a.trim().replace(/\s+/g, ' ').toLowerCase() === b.trim().replace(/\s+/g, ' ').toLowerCase();
+
+/* ─────────────────────────────────────────────────────────────────────────────
+ * Select con botón "+" para agregar una opción nueva que se guarda en el backend.
+ * Lo usan Restaurante y Cargo, así el flujo (validar, guardar, seleccionar) es idéntico.
+ * ───────────────────────────────────────────────────────────────────────────── */
+interface AddableSelectProps {
+  label: string;
+  value: string;
+  options: string[];
+  placeholder: string;
+  addPlaceholder: string;
+  addTitle: string;
+  errorFallback: string;
+  /** Normaliza lo escrito antes de comparar/guardar (p. ej. mayúsculas). */
+  normalize?: (value: string) => string;
+  onValueChange: (value: string) => void;
+  /** Guarda en el backend. Puede devolver el nombre oficial; si no, se usa el normalizado. */
+  onAdd: (nombre: string) => Promise<string | void>;
+}
+
+function AddableSelect({
+  label,
+  value,
+  options,
+  placeholder,
+  addPlaceholder,
+  addTitle,
+  errorFallback,
+  normalize = (v) => v,
+  onValueChange,
+  onAdd,
+}: AddableSelectProps) {
+  const [showAdd, setShowAdd] = useState(false);
+  const [nuevo, setNuevo] = useState('');
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const handleInputChange = (field: keyof FilterState, value: string) => {
-    onFiltersChange({
-      ...filters,
-      [field]: value,
-    });
+  const reset = () => {
+    setNuevo('');
+    setShowAdd(false);
+    setError(null);
   };
 
-  const handleConfirmAddRestaurante = async () => {
-    const nombre = nuevoRestaurante.trim().toUpperCase();
+  const handleConfirm = async () => {
+    const nombre = normalize(nuevo.trim().replace(/\s+/g, ' '));
     if (!nombre) return;
 
-    if (restaurantes.includes(nombre)) {
-      // Ya existe: simplemente lo seleccionamos, no hace falta guardarlo de nuevo.
-      handleInputChange('restaurante', nombre);
-      setNuevoRestaurante('');
-      setShowAddRestaurante(false);
-      setError(null);
+    // Ya existe: simplemente se selecciona, no hace falta guardarlo de nuevo.
+    const existente = options.find((option) => sameName(option, nombre));
+    if (existente) {
+      onValueChange(existente);
+      reset();
       return;
     }
 
@@ -94,24 +128,111 @@ export function FilterBar({
     setError(null);
     try {
       // Espera a que quede guardado en el Google Sheet antes de continuar.
-      await onAddRestaurante(nombre);
-
-      // Al resolver, el padre ya habrá actualizado `restaurantes`, así que
-      // seleccionarlo aquí lo deja disponible de inmediato para filtrar.
-      handleInputChange('restaurante', nombre);
-      setNuevoRestaurante('');
-      setShowAddRestaurante(false);
+      const guardado = (await onAdd(nombre)) ?? nombre;
+      // Al resolver, el padre ya actualizó `options`, así que queda disponible de inmediato.
+      onValueChange(guardado);
+      reset();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'No se pudo guardar el restaurante');
+      setError(err instanceof Error ? err.message : errorFallback);
     } finally {
       setGuardando(false);
     }
   };
 
-  const handleCancelAddRestaurante = () => {
-    setNuevoRestaurante('');
-    setShowAddRestaurante(false);
-    setError(null);
+  return (
+    <div className="space-y-2">
+      <label className="text-sm font-medium text-foreground">{label}</label>
+
+      <div className="flex gap-2">
+        <Select value={value} onValueChange={onValueChange}>
+          <SelectTrigger className="bg-background">
+            <SelectValue placeholder={placeholder} />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Todos</SelectItem>
+            {options.map((option) => (
+              <SelectItem key={option} value={option}>
+                {option}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        <Button
+          type="button"
+          variant="outline"
+          size="icon"
+          className="shrink-0"
+          onClick={() => setShowAdd((prev) => !prev)}
+          title={addTitle}
+        >
+          <Plus className="w-4 h-4" />
+        </Button>
+      </div>
+
+      {showAdd && (
+        <div className="flex flex-col gap-1 pt-1">
+          <div className="flex gap-2">
+            <Input
+              autoFocus
+              placeholder={addPlaceholder}
+              value={nuevo}
+              onChange={(e) => setNuevo(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  handleConfirm();
+                }
+                if (e.key === 'Escape') reset();
+              }}
+              disabled={guardando}
+              maxLength={60}
+              className="bg-background"
+            />
+            <Button
+              type="button"
+              size="icon"
+              className="shrink-0"
+              onClick={handleConfirm}
+              disabled={guardando || !nuevo.trim()}
+              title="Confirmar"
+            >
+              {guardando ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              className="shrink-0"
+              onClick={reset}
+              disabled={guardando}
+              title="Cancelar"
+            >
+              <X className="w-4 h-4" />
+            </Button>
+          </div>
+          {error && <p className="text-sm text-destructive">{error}</p>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function FilterBar({
+  filters,
+  onFiltersChange,
+  onSearch,
+  onClear,
+  restaurantes,
+  onAddRestaurante,
+  cargos,
+  onAddCargo,
+}: FilterBarProps) {
+  const handleInputChange = (field: keyof FilterState, value: string) => {
+    onFiltersChange({
+      ...filters,
+      [field]: value,
+    });
   };
 
   return (
@@ -183,92 +304,54 @@ export function FilterBar({
           </Select>
         </div>
 
-        {/* Restaurante */}
+        {/* Restaurante (la lista sale siempre del padre, que la lee del Google Sheet) */}
+        <AddableSelect
+          label="Restaurante"
+          value={filters.restaurante}
+          options={restaurantes}
+          placeholder="Seleccionar restaurante"
+          addPlaceholder="Nombre del nuevo restaurante"
+          addTitle="Agregar restaurante"
+          errorFallback="No se pudo guardar el restaurante"
+          normalize={(value) => value.toUpperCase()}
+          onValueChange={(value) => handleInputChange('restaurante', value)}
+          onAdd={async (nombre) => {
+            await onAddRestaurante(nombre);
+          }}
+        />
+
+        {/* Cargo (dinámico: el nuevo se guarda en la columna Cargo de la hoja RESTAURANTES) */}
+        <AddableSelect
+          label="Cargo"
+          value={filters.cargo}
+          options={cargos}
+          placeholder="Seleccionar cargo"
+          addPlaceholder="Nombre del nuevo cargo"
+          addTitle="Agregar cargo"
+          errorFallback="No se pudo guardar el cargo"
+          onValueChange={(value) => handleInputChange('cargo', value)}
+          onAdd={onAddCargo}
+        />
+
+        {/* Motivo de salida (3 opciones fijas) */}
         <div className="space-y-2">
-          <label className="text-sm font-medium text-foreground">Restaurante</label>
-
-          <div className="flex gap-2">
-            <Select
-              value={filters.restaurante}
-              onValueChange={(value) => handleInputChange('restaurante', value)}
-            >
-              <SelectTrigger className="bg-background">
-                <SelectValue placeholder="Seleccionar restaurante" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Todos</SelectItem>
-                {/* La lista ahora sale siempre de `restaurantes` (prop del padre,
-                    que viene del Google Sheet), así que cualquier restaurante
-                    nuevo aparece aquí sin recargar la página. */}
-                {restaurantes.map((nombre) => (
-                  <SelectItem key={nombre} value={nombre}>
-                    {nombre}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-
-            <Button
-              type="button"
-              variant="outline"
-              size="icon"
-              className="shrink-0"
-              onClick={() => setShowAddRestaurante((prev) => !prev)}
-              title="Agregar restaurante"
-            >
-              <Plus className="w-4 h-4" />
-            </Button>
-          </div>
-
-          {showAddRestaurante && (
-            <div className="flex flex-col gap-1 pt-1">
-              <div className="flex gap-2">
-                <Input
-                  autoFocus
-                  placeholder="Nombre del nuevo restaurante"
-                  value={nuevoRestaurante}
-                  onChange={(e) => setNuevoRestaurante(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      e.preventDefault();
-                      handleConfirmAddRestaurante();
-                    }
-                    if (e.key === 'Escape') {
-                      handleCancelAddRestaurante();
-                    }
-                  }}
-                  disabled={guardando}
-                  className="bg-background"
-                />
-                <Button
-                  type="button"
-                  size="icon"
-                  className="shrink-0"
-                  onClick={handleConfirmAddRestaurante}
-                  disabled={guardando || !nuevoRestaurante.trim()}
-                  title="Confirmar"
-                >
-                  {guardando ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                  ) : (
-                    <Check className="w-4 h-4" />
-                  )}
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="icon"
-                  className="shrink-0"
-                  onClick={handleCancelAddRestaurante}
-                  disabled={guardando}
-                  title="Cancelar"
-                >
-                  <X className="w-4 h-4" />
-                </Button>
-              </div>
-              {error && <p className="text-sm text-destructive">{error}</p>}
-            </div>
-          )}
+          <label className="text-sm font-medium text-foreground">Motivo de salida</label>
+          <Select
+            value={filters.motivoSalida}
+            onValueChange={(value) => handleInputChange('motivoSalida', value)}
+          >
+            <SelectTrigger className="bg-background">
+              <SelectValue placeholder="Seleccionar motivo" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Todos</SelectItem>
+              {MOTIVOS_SALIDA.map((motivo) => (
+                <SelectItem key={motivo} value={motivo}>
+                  {motivo}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
 
         {/* Estado */}

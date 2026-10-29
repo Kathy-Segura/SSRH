@@ -5,6 +5,8 @@ export interface FilterState {
   estadoCivil: string;
   estado: string;
   restaurante: string;
+  cargo: string; // 'all' o el nombre exacto del cargo
+  motivoSalida: string; // 'all' o uno de MOTIVOS_SALIDA
   mescumple: string;
   mesIngreso: string; // 'all' o '01'-'12'
 }
