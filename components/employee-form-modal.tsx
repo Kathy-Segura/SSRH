@@ -18,6 +18,8 @@ import { Employee } from '@/types/employee';
 import { Plus, RotateCcw, Loader2 } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { calcularDiasTrabajados } from '@/utiles/dateutils';
+import { CargoCombobox } from '@/components/cargo-combobox';
+import { MOTIVOS_SALIDA } from '@/lib/motivos-salida';
 
 interface EmployeeFormModalProps {
   isOpen: boolean;
@@ -26,6 +28,9 @@ interface EmployeeFormModalProps {
 }
 
 // Lista de respaldo, solo se usa si falla la carga desde el Sheet
+// Radix Select no admite value="", por eso la opción vacía usa este valor y se guarda como ''
+const SIN_MOTIVO = '__none__';
+
 const RESTAURANTES_FALLBACK = ['AJÍ', 'DF', 'ADMIN', 'BARRIO CAFÉ', 'LA CONTENTERA', 'FRITONI', 'CANTABAR'];
 
 const inp = "w-full h-11 px-4 rounded-xl border border-gray-200 bg-white text-sm text-gray-800 placeholder:text-gray-300 outline-none focus:border-[#4BBFCC] focus:ring-2 focus:ring-[#4BBFCC]/15 transition-all";
@@ -94,13 +99,13 @@ export function EmployeeFormModal({ isOpen, onClose, onSubmit }: EmployeeFormMod
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.nombreCompleto || !formData.cedula) {
-      alert('Por favor completa los campos requeridos: Nombre y Cédula');
+    if (!formData.nombreCompleto) {
+      alert('Por favor completa el campo requerido: Nombre');
       return;
     }
     const employee: Employee = {
       id: Date.now().toString(),
-      nombreCompleto: formData.nombreCompleto!, cedula: formData.cedula!,
+      nombreCompleto: formData.nombreCompleto!, cedula: formData.cedula || '',
       fechaIngreso: formData.fechaIngreso || '', fechaEgreso: formData.fechaEgreso || '',
       cargo: formData.cargo || '', restaurante: (formData.restaurante as any) || 'DF',
       salario: formData.salario || 0, beneficios: formData.beneficios || '',
@@ -111,6 +116,7 @@ export function EmployeeFormModal({ isOpen, onClose, onSubmit }: EmployeeFormMod
       observaciones: formData.observaciones || '',
       estadoCivil: (formData.estadoCivil as any) || 'soltero',
       estado: (formData.estado as any) || 'activo',
+      motivoSalida: (formData.motivoSalida as any) || '',
     };
     onSubmit?.(employee);
     reset();
@@ -182,7 +188,7 @@ export function EmployeeFormModal({ isOpen, onClose, onSubmit }: EmployeeFormMod
                   </Field>
                 </div>
                 <div className="md:col-span-2">
-                  <Field label="Cédula *">
+                  <Field label="Cédula">
                     <input
                       placeholder="001-120597-0003A"
                       value={formData.cedula || ''}
@@ -198,7 +204,6 @@ export function EmployeeFormModal({ isOpen, onClose, onSubmit }: EmployeeFormMod
                       }}
                       className={inp}
                       maxLength={16}
-                      required
                     />
                   </Field>
                 </div>
@@ -229,7 +234,12 @@ export function EmployeeFormModal({ isOpen, onClose, onSubmit }: EmployeeFormMod
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-x-8 gap-y-6">
                   <div>
                     <Field label="Cargo">
-                      <input placeholder="Chef, Mesero, Cajero..." value={formData.cargo || ''} onChange={e => set('cargo', e.target.value)} className={inp} />
+                      <CargoCombobox
+                        value={formData.cargo || ''}
+                        onChange={v => set('cargo', v)}
+                        isOpen={isOpen}
+                        className={inp}
+                      />
                     </Field>
                   </div>
                   <div>
@@ -358,10 +368,25 @@ export function EmployeeFormModal({ isOpen, onClose, onSubmit }: EmployeeFormMod
                 </div>
               </div>
 
-              {/* Observaciones */}
+              {/* Observaciones (con Motivo de salida justo arriba del textarea) */}
               <div className="bg-white rounded-2xl p-7 border border-gray-100 shadow-sm">
                 <SectionTitle title="Observaciones" />
-                <Field label="Notas adicionales">
+                <div className="space-y-6">
+                <Field label="Motivo de salida">
+                  <Select
+                    value={formData.motivoSalida || SIN_MOTIVO}
+                    onValueChange={v => set('motivoSalida', v === SIN_MOTIVO ? '' : v)}
+                  >
+                    <SelectTrigger className={sel}><SelectValue placeholder="Sin motivo" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={SIN_MOTIVO}>Sin motivo</SelectItem>
+                      {MOTIVOS_SALIDA.map(m => (
+                        <SelectItem key={m} value={m}>{m}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </Field>
+                  <Field label="Notas adicionales">
                   <textarea
                     placeholder="Información adicional sobre el empleado..."
                     value={formData.observaciones || ''}
@@ -370,6 +395,7 @@ export function EmployeeFormModal({ isOpen, onClose, onSubmit }: EmployeeFormMod
                     className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-white text-sm text-gray-800 placeholder:text-gray-300 outline-none focus:border-[#4BBFCC] focus:ring-2 focus:ring-[#4BBFCC]/15 transition-all resize-none"
                   />
                 </Field>
+                </div>
               </div>
             </div>
             {/* ── fin CARD 2 ── */}

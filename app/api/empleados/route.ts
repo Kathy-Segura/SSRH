@@ -86,10 +86,10 @@ export async function POST(request: Request) {
   try {
     const body = await request.json();
 
-    // Validación básica de campos requeridos
-    if (!body.nombreCompleto || !body.cedula) {
+    // Validación básica: solo el nombre es obligatorio (la cédula puede faltar en empleados antiguos)
+    if (!body.nombreCompleto) {
       return NextResponse.json(
-        { error: 'Nombre completo y cédula son requeridos' },
+        { error: 'El nombre completo es requerido' },
         { status: 400 }
       );
     }
@@ -101,7 +101,7 @@ export async function POST(request: Request) {
     // Armar la fila en el mismo orden que los encabezados del Sheet
     const fila = [
       body.nombreCompleto,              // A: Nombres y Apellidos
-      body.cedula,                      // B: Cédula
+      body.cedula             || '',    // B: Cédula (opcional)
       body.fechaIngreso       || '',    // C: Fecha Ingreso
       body.fechaEgreso        || '',    // D: Fecha Egreso
       body.cargo              || '',    // E: Cargo

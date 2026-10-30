@@ -21,9 +21,10 @@ export async function PUT(
 
     const body = await request.json();
 
-    if (!body.nombreCompleto || !body.cedula) {
+    // Solo el nombre es obligatorio (la cédula puede faltar en empleados antiguos)
+    if (!body.nombreCompleto) {
       return NextResponse.json(
-        { error: 'Nombre completo y cédula son requeridos' },
+        { error: 'El nombre completo es requerido' },
         { status: 400 }
       );
     }
@@ -37,7 +38,7 @@ export async function PUT(
 
     const fila = [
       body.nombreCompleto,
-      body.cedula,
+      body.cedula           || '',
       body.fechaIngreso     || '',
       body.fechaEgreso      || '',
       body.cargo            || '',
@@ -67,9 +68,10 @@ export async function PUT(
     // Propaga el salario a las filas ya guardadas en DEDUCCIONES (quincena vigente en adelante).
     // Si esto falla, la ficha ya quedó guardada: se avisa en la respuesta en vez de mostrar un falso error.
     let deducciones: { ok: boolean; actualizadas?: number; periodos?: string[]; error?: string } | undefined;
-    if (salario !== null && salario > 0) {
+    // Sin cédula no hay forma de ubicar la fila en DEDUCCIONES, así que no se sincroniza.
+    if (salario !== null && salario > 0 && body.cedula) {
       try {
-        const sync = await syncSalarioEnDeducciones(String(body.cedula), String(body.nombreCompleto), salario);
+        const sync = await syncSalarioEnDeducciones(String(body.cedula ?? ''), String(body.nombreCompleto), salario);
         deducciones = { ok: true, ...sync };
       } catch (syncError) {
         console.error('Error sincronizando salario en DEDUCCIONES:', syncError);

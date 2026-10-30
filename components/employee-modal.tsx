@@ -14,6 +14,8 @@ import { Employee } from '@/types/employee';
 import { Save, Loader2 } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { calcularDiasTrabajados } from '@/utiles/dateutils';
+import { CargoCombobox } from '@/components/cargo-combobox';
+import { MOTIVOS_SALIDA } from '@/lib/motivos-salida';
 
 interface EmployeeModalProps {
   isOpen: boolean;
@@ -24,6 +26,9 @@ interface EmployeeModalProps {
 }
 
 // Lista de respaldo, solo se usa si falla la carga desde el Sheet
+// Radix Select no admite value="", por eso la opción vacía usa este valor y se guarda como ''
+const SIN_MOTIVO = '__none__';
+
 const RESTAURANTES_FALLBACK = ['AJÍ', 'DF', 'ADMIN', 'BARRIO CAFÉ', 'LA CONTENTERA', 'FRITONI', 'CANTABAR'];
 
 const inp = "w-full h-11 px-4 rounded-xl border border-gray-200 bg-white text-sm text-gray-800 placeholder:text-gray-300 outline-none focus:border-[#4BBFCC] focus:ring-2 focus:ring-[#4BBFCC]/15 transition-all";
@@ -162,6 +167,7 @@ const EMPTY_EMPLOYEE: Employee = {
   observaciones: '',
   estadoCivil: 'soltero',
   estado: 'activo',
+  motivoSalida: '' as any,
 };
 
 export function EmployeeModal({
@@ -235,8 +241,8 @@ export function EmployeeModal({
     setFormData(prev => ({ ...prev, [field]: value }));
 
   const handleSave = () => {
-    if (!formData.nombreCompleto || !formData.cedula) {
-      alert('Por favor completa los campos requeridos: Nombre y Cédula');
+    if (!formData.nombreCompleto) {
+      alert('Por favor completa el campo requerido: Nombre');
       return;
     }
     onSave(formData);
@@ -292,10 +298,10 @@ export function EmployeeModal({
                 </Field>
             </div>
                 <div className="md:col-span-2">
-                  <Field label="Cédula *">
+                  <Field label="Cédula">
                     <input
                       placeholder="001-180901-1023U"
-                      value={formData.cedula}
+                      value={formData.cedula ?? ''}
                       onChange={e => {
                         // Elimina todo excepto alfanuméricos
                         const raw = e.target.value.replace(/[^a-zA-Z0-9]/g, '').toUpperCase();
@@ -346,10 +352,10 @@ export function EmployeeModal({
                 {/* Fila 1: Cargo - Restaurante */}
                 <div>
                   <Field label="Cargo">
-                    <input
-                      placeholder="Chef, Mesero, Cajero..."
-                      value={formData.cargo}
-                      onChange={e => set('cargo', e.target.value)}
+                    <CargoCombobox
+                      value={formData.cargo ?? ''}
+                      onChange={v => set('cargo', v)}
+                      isOpen={isOpen}
                       className={inp}
                     />
                   </Field>
@@ -504,23 +510,37 @@ export function EmployeeModal({
               </div>
             </div>
 
-            {/* Observaciones */}
+            {/* Observaciones (con Motivo de salida justo arriba del textarea) */}
             <div className="bg-white rounded-2xl p-7 border border-gray-100 shadow-sm">
               <SectionTitle title="Observaciones" />
-              <Field label="Notas adicionales">
+              <div className="space-y-6">
+              <Field label="Motivo de salida">
+                <Select
+                  value={formData.motivoSalida || SIN_MOTIVO}
+                  onValueChange={v => set('motivoSalida', v === SIN_MOTIVO ? '' : v)}
+                >
+                  <SelectTrigger className={sel}><SelectValue placeholder="Sin motivo" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={SIN_MOTIVO}>Sin motivo</SelectItem>
+                    {MOTIVOS_SALIDA.map(m => (
+                      <SelectItem key={m} value={m}>{m}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </Field>
+                <Field label="Notas adicionales">
                 <textarea
                   placeholder="Información adicional sobre el empleado..."
                   value={formData.observaciones}
                   onChange={e => set('observaciones', e.target.value)}
                   rows={7}
-                  className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-white text-sm text-gray-800 placeholder:text-gray-300 outline-none focus:border-[#4BBFCC] focus:ring-2 focus:ring-[#4BBFCC]/15 transition-all resize-none"
+                  className="w-full px-1 py-2 rounded-xl border border-gray-200 bg-white text-sm text-gray-800 placeholder:text-gray-300 outline-none focus:border-[#4BBFCC] focus:ring-2 focus:ring-[#4BBFCC]/15 transition-all resize-none"
                 />
               </Field>
+              </div>
             </div>
-          </div>
-          {/* ── fin CARD 2 ── */}
-
-        </div>
+          </div>{/* ── fin CARD 2 ── */}
+         </div>
         </div>
 
         {/* ── Botones (fijos, siempre visibles) ── */}
