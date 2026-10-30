@@ -34,8 +34,10 @@ const DECIMAL_PATTERN = /^\d+(\.\d+)?$/;
 const hasAtMostTwoDecimals = (value: number) => Math.abs(value * 100 - Math.round(value * 100)) < 1e-7;
 
 // La cédula es la llave del registro en la hoja: se normaliza igual en todos lados.
+// Acepta con o sin guiones (201-090699-1001E = 2010906991001E): se quita todo lo que no sea letra o número
+// (guiones, puntos, espacios, guiones raros copiados de Excel) y se pasa a mayúsculas.
 export function normalizeCedula(value: unknown): string {
-  return String(value ?? '').replace(/\s+/g, '').toUpperCase();
+  return String(value ?? '').normalize('NFKC').replace(/[^0-9A-Za-z]/g, '').toUpperCase();
 }
 
 const MAX_NAME_LENGTH = 120;
@@ -52,7 +54,7 @@ export function inputsToForm(inputs: PayrollInputs): FormValues {
 }
 
 export function sameInputs(a: PayrollInputs, b: PayrollInputs): boolean {
-  return PAYROLL_INPUT_FIELDS.every((field) => a[field] === b[field]) && !!a.aplicaIR === !!b.aplicaIR && !!a.excluirINSS === !!b.excluirINSS;
+  return PAYROLL_INPUT_FIELDS.every((field) => a[field] === b[field]) && !!a.excluirINSS === !!b.excluirINSS;
 }
 
 /**
@@ -94,7 +96,7 @@ export function validatePayrollInputs(inputs: PayrollInputs, maxDays: number): F
 export function parseFormValues(
   form: FormValues,
   maxDays: number,
-  aplicaIR = false,
+  _aplicaIR = false, // RETIRADO: el IR ya no se aplica; se conserva el parámetro para no romper llamadas existentes
   excluirINSS = false
 ): { values: PayrollInputs | null; errors: FieldErrors } {
   const errors: FieldErrors = {};
@@ -113,7 +115,8 @@ export function parseFormValues(
   }
   if (Object.keys(errors).length > 0) return { values: null, errors };
 
-  const values = { ...(parsed as PayrollInputs), aplicaIR, excluirINSS };
+  // GRECE Comida e IR fueron eliminados: siempre se guardan en 0 / falso.
+  const values = { ...(parsed as PayrollInputs), greceComida: 0, aplicaIR: false, excluirINSS };
   const fieldErrors = validatePayrollInputs(values, maxDays);
   return Object.keys(fieldErrors).length > 0 ? { values: null, errors: fieldErrors } : { values, errors: {} };
 }
@@ -128,9 +131,10 @@ export function coercePayrollInputs(raw: unknown): PayrollInputs | null {
     if (typeof value !== 'number' || !Number.isFinite(value)) return null;
     result[field] = value;
   }
-  // Opcional por compatibilidad con clientes anteriores: si no viene, el IR no se aplica.
+  // El IR y GRECE Comida fueron eliminados: aunque un cliente anterior los envíe, el servidor los guarda en falso / 0.
   if (source.aplicaIR !== undefined && typeof source.aplicaIR !== 'boolean') return null;
-  result.aplicaIR = source.aplicaIR === true;
+  result.aplicaIR = false;
+  result.greceComida = 0;
   if (source.excluirINSS !== undefined && typeof source.excluirINSS !== 'boolean') return null;
   result.excluirINSS = source.excluirINSS === true;
   return result as PayrollInputs;
@@ -207,7 +211,6 @@ export function computeInputDiffs(before: PayrollInputs | null, after: PayrollIn
     anterior: before[field],
     nuevo: after[field],
   }));
-  if (!!before.aplicaIR !== !!after.aplicaIR) changes.push({ campo: 'aplicaIR', anterior: before.aplicaIR ? 1 : 0, nuevo: after.aplicaIR ? 1 : 0 });
   if (!!before.excluirINSS !== !!after.excluirINSS) changes.push({ campo: 'excluirINSS', anterior: before.excluirINSS ? 1 : 0, nuevo: after.excluirINSS ? 1 : 0 });
   return changes;
 }

@@ -39,12 +39,15 @@ export interface PayrollInputs {
   otrosIngresos: number;
   consumo: number;
   prestamo: number;
+  /**
+   * RETIRADO: la deducción GRECE Comida ya no existe. El campo se conserva solo para no mover las columnas
+   * de la hoja DEDUCCIONES; siempre se guarda en 0 y NO entra en ningún cálculo.
+   */
   greceComida: number;
   otros: number;
   /**
-   * Retención de IR laboral. Por defecto NO se aplica (undefined = false): la planilla deduce solo el INSS.
-   * Se activa por empleado/quincena. No forma parte de PAYROLL_INPUT_FIELDS (no es numérico); en la hoja
-   * vive en la columna P para no mover `totalPagar` (M).
+   * RETIRADO: la retención de IR ya no se aplica. Se conserva solo para no mover la columna P de la hoja
+   * (que sigue después de `totalPagar`, M); siempre se guarda en falso y NO entra en ningún cálculo.
    */
   aplicaIR?: boolean;
   /**
@@ -102,6 +105,7 @@ export function calcularHorasExtra(salarioMensual: number, horasExtra: number) {
   return money(valorHora * horasExtra * PAYROLL_CONSTANTS.overtimeMultiplier);
 }
 
+// Ya no se usa en la planilla (la retención de IR fue eliminada); se deja por compatibilidad con pruebas existentes.
 // La planilla es quincenal: se anualiza con 24 periodos y se prorratea de vuelta.
 export function calcularIR(baseImponibleQuincenal: number) {
   const periodos = PAYROLL_CONSTANTS.fortnightsPerYear;
@@ -142,9 +146,10 @@ export function calcularTotales(inputs: PayrollInputs, ceiling = PAYROLL_CONSTAN
   // El INSS laboral se calcula una sola vez sobre el total devengado (con tope).
   const inssLaboral = inputs.excluirINSS === true ? 0 : calcularINSSLaboral(totalDevengado, ceiling);
   const baseImponible = money(totalDevengado - inssLaboral);
-  const irLaboral = inputs.aplicaIR === true ? calcularIR(baseImponible) : 0;
+  // El IR y GRECE Comida fueron eliminados de la planilla: solo se deduce INSS + consumo + préstamo + otros.
+  const irLaboral = 0;
 
-  const otrasDeducciones = money(inputs.consumo + inputs.prestamo + inputs.greceComida + inputs.otros);
+  const otrasDeducciones = money(inputs.consumo + inputs.prestamo + inputs.otros);
   const totalDeducciones = money(inssLaboral + irLaboral + otrasDeducciones);
   const provisiones = calcularProvisiones(inputs.salarioMensual);
   return {
@@ -155,6 +160,11 @@ export function calcularTotales(inputs: PayrollInputs, ceiling = PAYROLL_CONSTAN
     inssPatronal: inputs.excluirINSS === true ? 0 : calcularINSSPatronal(totalDevengado, ceiling),
     inatec: calcularINATEC(totalDevengado), ...provisiones,
   };
+}
+
+/** Deja en cero los campos retirados (IR y GRECE) de valores que vengan de la hoja o de borradores antiguos. */
+export function withoutRetiredFields(inputs: PayrollInputs): PayrollInputs {
+  return { ...inputs, greceComida: 0, aplicaIR: false };
 }
 
 export const formatCurrency = (value: number) =>

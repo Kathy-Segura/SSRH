@@ -85,28 +85,26 @@ type Props = {
 // Anchos de columna (suman 100). Sin la columna de firma, su ancho se reparte en el nombre.
 const COLUMNS: { key: string; label: string; width: number }[] = [
   { key: 'n', label: '#', width: 2.5 },
-  { key: 'name', label: 'Empleado', width: 14 },
-  { key: 'cedula', label: 'Cédula', width: 9 },
-  { key: 'cargo', label: 'Cargo', width: 6.5 },
-  { key: 'salario', label: 'Salario mensual', width: 6 },
+  { key: 'name', label: 'Empleado', width: 17 },
+  { key: 'cedula', label: 'Cédula', width: 10 },
+  { key: 'cargo', label: 'Cargo', width: 9 },
+  { key: 'salario', label: 'Salario mensual', width: 6.5 },
   { key: 'dias', label: 'Días', width: 3 },
-  { key: 'dev', label: 'Devengado', width: 6 },
+  { key: 'dev', label: 'Devengado', width: 6.5 },
   { key: 'inss', label: 'INSS', width: 5 },
-  { key: 'ir', label: 'IR', width: 4.5 },
-  { key: 'consumo', label: 'Consumo', width: 4.5 },
-  { key: 'prest', label: 'Mi Prestamito', width: 4.5 },
-  { key: 'grece', label: 'GRECE', width: 4.5 },
-  { key: 'otros', label: 'Otros', width: 4 },
-  { key: 'ded', label: 'Total deducciones', width: 6 },
-  { key: 'neto', label: 'Neto a pagar', width: 6.5 },
-  { key: 'firma', label: 'Recibí conforme (firma)', width: 13.5 },
+  { key: 'consumo', label: 'Consumo', width: 5 },
+  { key: 'prest', label: 'Mi Prestamito', width: 5 },
+  { key: 'otros', label: 'Otros', width: 4.5 },
+  { key: 'ded', label: 'Total deducciones', width: 6.5 },
+  { key: 'neto', label: 'Neto a pagar', width: 7 },
+  { key: 'firma', label: 'Recibí conforme (firma)', width: 12.5 },
 ];
 
 function TotalsCells({ t }: { t: PayrollTotals }) {
   return <>
     <td className="num">{total(t.salarioBase)}</td><td />
-    <td className="num">{total(t.totalDevengado)}</td><td className="num">{total(t.inssLaboral)}</td><td className="num">{total(t.irLaboral)}</td>
-    <td className="num">{total(t.consumo)}</td><td className="num">{total(t.prestamo)}</td><td className="num">{total(t.greceComida)}</td><td className="num">{total(t.otros)}</td>
+    <td className="num">{total(t.totalDevengado)}</td><td className="num">{total(t.inssLaboral)}</td>
+    <td className="num">{total(t.consumo)}</td><td className="num">{total(t.prestamo)}</td><td className="num">{total(t.otros)}</td>
     <td className="num">{total(t.totalDeducciones)}</td><td className="num">{total(t.netoPagar)}</td>
   </>;
 }
@@ -147,8 +145,8 @@ export function PayrollPrintReport({
   if (!host) return null;
 
   const payLines: [string, number][] = [
-    ['INSS laboral', totals.inssLaboral], ['IR laboral', totals.irLaboral], ['Consumo', totals.consumo],
-    ['Mi Prestamito', totals.prestamo], ['GRECE Comida', totals.greceComida], ['Otras deducciones', totals.otros],
+    ['INSS laboral', totals.inssLaboral], ['Consumo', totals.consumo],
+    ['Mi Prestamito', totals.prestamo], ['Otras deducciones', totals.otros],
   ];
   const costLines: [string, string, number][] = [
     ['INSS patronal', formatPercent(PAYROLL_CONSTANTS.employerInssRate), totals.inssPatronal],
@@ -234,10 +232,8 @@ export function PayrollPrintReport({
                 <td className="num">{row.inputs.diasLaborados}</td>
                 <td className="num">{total(row.calculation.totalDevengado)}</td>
                 <td className="num">{amount(row.calculation.inssLaboral)}</td>
-                <td className="num">{amount(row.calculation.irLaboral)}</td>
                 <td className="num">{amount(row.inputs.consumo)}</td>
                 <td className="num">{amount(row.inputs.prestamo)}</td>
-                <td className="num">{amount(row.inputs.greceComida)}</td>
                 <td className="num">{amount(row.inputs.otros)}</td>
                 <td className="num">{total(row.calculation.totalDeducciones)}</td>
                 <td className="num"><strong>{total(row.calculation.netoPagar)}</strong></td>

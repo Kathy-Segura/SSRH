@@ -70,7 +70,7 @@ const SOURCES: Record<SummedKey, (row: AggregatableRow) => number> = {
   irLaboral: (r) => r.calculation.irLaboral,
   consumo: (r) => r.inputs.consumo,
   prestamo: (r) => r.inputs.prestamo,
-  greceComida: (r) => r.inputs.greceComida,
+  greceComida: () => 0, // GRECE Comida fue eliminada de la planilla: no suma aunque la hoja tenga valores antiguos
   otros: (r) => r.inputs.otros,
   otrasDeducciones: (r) => r.calculation.otrasDeducciones,
   totalDeducciones: (r) => r.calculation.totalDeducciones,

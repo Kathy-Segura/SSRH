@@ -10,7 +10,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { ChevronDown, ChevronLeft, ChevronRight, FileText, History, Printer, RefreshCw, Save, Search, SlidersHorizontal, Users, Wallet } from 'lucide-react';
+import { ChevronDown, ChevronLeft, ChevronRight, FileSpreadsheet, FileText, History, Printer, RefreshCw, Save, Search, SlidersHorizontal, Users, Wallet } from 'lucide-react';
 import {
   calcularTotales,
   formatCurrency,
@@ -21,6 +21,7 @@ import {
   parseCalendarDate,
   PAYROLL_INPUT_FIELDS,
   PAYROLL_YEAR_WINDOW,
+  withoutRetiredFields,
   type Fortnight,
   type PayrollInputs,
 } from '@/lib/payroll-calculations';
@@ -39,6 +40,7 @@ import { PayrollDetail } from '@/components/payroll-detail';
 import { DeductionHistory, RestaurantBreakdown, TotalsPayable } from '@/components/payroll-reports';
 import { PayrollPrintReport } from '@/components/payroll-print';
 import { aggregateRows } from '@/lib/payroll-aggregates';
+import { exportPayrollExcel } from '@/lib/payroll-excel';
 
 // Solo se usa si falla la carga desde /api/restaurantes (mismo patrón que
 // employee-form-modal.tsx / employee-modal.tsx).
@@ -69,7 +71,8 @@ function loadDrafts(periodKey: string): Record<string, Draft> {
     const items: Record<string, Draft> = {};
     Object.entries(parsed as Record<string, Draft>).forEach(([key, value]) => {
       const valid = (inputs: unknown) => !!inputs && PAYROLL_INPUT_FIELDS.every((field) => Number.isFinite((inputs as PayrollInputs)[field]));
-      if (valid(value?.inputs) && valid(value?.base)) items[key] = value;
+      // Las llaves se renormalizan: borradores guardados con la cédula con guiones siguen encontrándose.
+      if (valid(value?.inputs) && valid(value?.base)) items[normalizeCedula(key)] = { inputs: withoutRetiredFields(value.inputs), base: withoutRetiredFields(value.base) };
     });
     return items;
   } catch { return {}; }
@@ -87,10 +90,10 @@ function currentPeriodKeyNicaragua(): string {
   return getPeriodoKey(local.getUTCFullYear(), local.getUTCMonth() + 1, local.getUTCDate() <= 15 ? 'first' : 'second');
 }
 
-type DraftField = PayrollField | 'aplicaIR' | 'excluirINSS';
-const fieldValue = (inputs: PayrollInputs, field: DraftField) => (field === 'aplicaIR' ? !!inputs.aplicaIR : field === 'excluirINSS' ? !!inputs.excluirINSS : inputs[field]);
+type DraftField = PayrollField | 'excluirINSS';
+const fieldValue = (inputs: PayrollInputs, field: DraftField) => (field === 'excluirINSS' ? !!inputs.excluirINSS : inputs[field]);
 const changedFields = (a: PayrollInputs, b: PayrollInputs): DraftField[] => {
-  const fields: DraftField[] = [...PAYROLL_INPUT_FIELDS, 'aplicaIR', 'excluirINSS'];
+  const fields: DraftField[] = [...PAYROLL_INPUT_FIELDS, 'excluirINSS'];
   return fields.filter((field) => fieldValue(a, field) !== fieldValue(b, field));
 };
 
@@ -108,8 +111,7 @@ function reconcileDraft(draft: Draft, base: PayrollInputs): { inputs: PayrollInp
   if (mine.some((field) => theirs.includes(field) && fieldValue(draft.inputs, field) !== fieldValue(base, field))) return { inputs: draft.inputs, conflict: true };
   const merged: PayrollInputs = { ...base };
   mine.forEach((field) => {
-    if (field === 'aplicaIR') merged.aplicaIR = !!draft.inputs.aplicaIR;
-    else if (field === 'excluirINSS') merged.excluirINSS = !!draft.inputs.excluirINSS;
+    if (field === 'excluirINSS') merged.excluirINSS = !!draft.inputs.excluirINSS;
     else merged[field] = draft.inputs[field];
   });
   return { inputs: merged, conflict: false };
@@ -144,6 +146,7 @@ export function PayrollModule({ employees, onEmployeesChanged }: {
   // Salarios que esta misma pantalla acaba de escribir en la ficha: al llegar en la lista de empleados no hace falta recargar.
   const ownSalaryWrites = useRef<Map<string, number>>(new Map());
   const [printing, setPrinting] = useState(false);
+  const [exporting, setExporting] = useState(false);
 
   const yearNumber = Number(year);
   const monthNumber = Number(month);
@@ -281,7 +284,8 @@ export function PayrollModule({ employees, onEmployeesChanged }: {
       diasVacaciones: 0, horasExtra: 0, otrosIngresos: 0, consumo: 0, prestamo: 0, greceComida: 0, otros: 0,
       aplicaIR: false, excluirINSS: false,
     };
-    const baseInputs = record?.inputs ?? defaults;
+    // IR y GRECE ya no existen: si la hoja trae valores antiguos se muestran en cero.
+    const baseInputs = record ? withoutRetiredFields(record.inputs) : defaults;
     let inputs = baseInputs;
     let hasDraft = false;
     let conflict = false;
@@ -338,7 +342,7 @@ export function PayrollModule({ employees, onEmployeesChanged }: {
           const reason = !employee ? 'La cédula no existe en el módulo Empleados'
             : normalizeText(employee.estado || 'activo') === 'INACTIVO' ? 'El empleado está inactivo'
             : 'Sus fechas de ingreso/egreso lo dejan fuera de esta quincena';
-          return { cedula, nombre: employee?.nombreCompleto || record.nombre || cedula, reason };
+          return { cedula: employee?.cedula || cedula, key: cedula, nombre: employee?.nombreCompleto || record.nombre || cedula, reason };
         })
     : [];
   const orphanCount = orphans.length;
@@ -357,6 +361,24 @@ export function PayrollModule({ employees, onEmployeesChanged }: {
   const totals = useMemo(() => aggregateRows(rows), [rows]);
 
   const reloadPeriod = () => { setNotice(null); setReloadToken((token) => token + 1); };
+
+  // Excel con lo mismo que el reporte impreso (filtro de restaurante y búsqueda incluidos).
+  const handleExportExcel = async () => {
+    setExporting(true);
+    try {
+      await exportPayrollExcel({
+        rows,
+        catalog: restaurantes,
+        periodTitle: `${fortnight === 'first' ? '1.ª' : '2.ª'} quincena de ${new Date(yearNumber, monthNumber - 1).toLocaleString('es', { month: 'long' })} ${yearNumber}`,
+        periodLabel: `${period.start.toLocaleDateString('es-NI')} — ${period.end.toLocaleDateString('es-NI')}`,
+        restaurantFilter: restaurant,
+      });
+    } catch (err) {
+      setNotice({ kind: 'error', text: `No se pudo generar el Excel: ${err instanceof Error ? err.message : 'error desconocido'}` });
+    } finally {
+      setExporting(false);
+    }
+  };
 
   // ── Guardado: solo se envían las filas indicadas; la API hace upsert por periodo + cédula ──
   const persistRows = async (targets: SaveTarget[]): Promise<SaveOutcome> => {
@@ -428,7 +450,7 @@ export function PayrollModule({ employees, onEmployeesChanged }: {
       const fichas: { cedula: string; salario: number }[] = Array.isArray(data.fichas) ? data.fichas : [];
       const avisos: string[] = Array.isArray(data.avisos) ? data.avisos : [];
       if (fichas.length > 0) {
-        setFichaOverrides((current) => ({ ...current, ...Object.fromEntries(fichas.map((ficha) => [ficha.cedula, ficha.salario])) }));
+        setFichaOverrides((current) => ({ ...current, ...Object.fromEntries(fichas.map((ficha) => [normalizeCedula(ficha.cedula), ficha.salario])) }));
         fichas.forEach((ficha) => ownSalaryWrites.current.set(normalizeCedula(ficha.cedula), ficha.salario));
         onEmployeesChanged?.();
         // Aviso para cualquier otra parte de la app (p. ej. la lista del módulo Empleados) que quiera recargarse.
@@ -515,7 +537,8 @@ export function PayrollModule({ employees, onEmployeesChanged }: {
       </div>
       <div className="flex flex-col items-start gap-1 md:items-end">
         <div className="flex gap-2">
-          <Button variant="outline" className="gap-2" disabled={!sheetReady || rows.length === 0 || printing} onClick={() => setPrinting(true)}><Printer className="h-4 w-4" />Imprimir</Button>
+          <Button variant="outline" className="gap-2" disabled={!sheetReady || rows.length === 0 || printing} onClick={() => setPrinting(true)}><Printer className="h-4 w-4" />Imprimir (PDF)</Button>
+          <Button variant="outline" className="gap-2" disabled={!sheetReady || rows.length === 0 || exporting} onClick={handleExportExcel}><FileSpreadsheet className="h-4 w-4" />{exporting ? 'Generando...' : 'Excel'}</Button>
           <Button className="gap-2 bg-[#80CED7] text-black hover:bg-[#007EA7]" disabled={isSaving || !sheetReady || unsavedCount === 0} onClick={handleGuardarPeriodo}>
             <Save className="h-4 w-4" />{isSaving ? 'Guardando...' : `Guardar cambios (${unsavedCount})`}
           </Button>
@@ -544,7 +567,7 @@ export function PayrollModule({ employees, onEmployeesChanged }: {
         <ChevronDown className="ml-auto h-3.5 w-3.5 transition-transform group-open:rotate-180" />
       </summary>
       <ul className="mt-2 list-disc space-y-0.5 pl-5">
-        {orphans.slice(0, 10).map((item) => <li key={item.cedula}><span className="font-medium text-foreground">{item.nombre}</span> · {item.cedula} — {item.reason}</li>)}
+        {orphans.slice(0, 10).map((item) => <li key={item.key}><span className="font-medium text-foreground">{item.nombre}</span> · {item.cedula} — {item.reason}</li>)}
         {orphans.length > 10 && <li>… y {orphans.length - 10} más</li>}
       </ul>
     </details>}
@@ -658,10 +681,10 @@ export function PayrollModule({ employees, onEmployeesChanged }: {
     </Tabs>
 
     <Dialog open={detailOpen} onOpenChange={setDetailOpen}>
-      <DialogContent className="max-h-[90vh] w-[95vw] max-w-[95vw] overflow-y-auto sm:max-w-5xl">
+      <DialogContent className="max-h-[94vh] w-[97vw] max-w-[97vw] overflow-y-auto sm:max-w-[1360px]">
         <DialogHeader>
-          <DialogTitle className="text-xl text-[#007EA7]">Detalle del empleado</DialogTitle>
-          <DialogDescription>Ingresos, extras y deducciones del periodo {periodKey}. Use “Guardar” para enviar este empleado a la hoja, o “Dejar en borrador” para guardarlo después junto con los demás.</DialogDescription>
+          <DialogTitle className="text-2xl text-[#007EA7]">Detalle del empleado</DialogTitle>
+          <DialogDescription>Periodo {periodKey}. “Guardar” envía a este empleado a la hoja; “Dejar en borrador” lo conserva para guardarlo después junto con los demás.</DialogDescription>
         </DialogHeader>
         {selected
           ? <PayrollDetail

@@ -4,19 +4,19 @@ import { useId, useMemo, useState, type ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
-import { Eraser, RefreshCw, Save } from 'lucide-react';
+import { ChevronDown, Eraser, RefreshCw, Save } from 'lucide-react';
 import { calcularTotales, formatCurrency, PAYROLL_CONSTANTS, type PayrollInputs } from '@/lib/payroll-calculations';
 import { inputsToForm, parseFormValues, sameInputs, type FormValues, type PayrollField } from '@/lib/payroll-validation';
 import { formatDateTime, formatPercent, type PayrollRow, type SaveOutcome } from '@/components/payroll-shared';
 
 // ── Campos del formulario del detalle, en el orden en que se muestran ────────
-type FieldMeta = { field: PayrollField; title: string; hint: string; prefix?: string; suffix?: string; wide?: boolean };
+type FieldMeta = { field: PayrollField; title: string; hint: string; prefix?: string; suffix?: string };
 
 // 1. Ingresos y extras
 const SALARY_FIELDS: readonly FieldMeta[] = [
-  { field: 'salarioMensual', title: 'Salario mensual', hint: 'Salario base del mes completo.', prefix: 'C$', wide: true },
+  { field: 'salarioMensual', title: 'Salario mensual', hint: 'Salario base del mes completo.', prefix: 'C$' },
   { field: 'diasLaborados', title: 'Días laborados', hint: 'Días trabajados en esta quincena.', suffix: 'días' },
   { field: 'diasVacaciones', title: 'Días de vacaciones', hint: 'Vacaciones pagadas (también si se pagan en efectivo).', suffix: 'días' },
 ];
@@ -24,19 +24,18 @@ const EXTRA_FIELDS: readonly FieldMeta[] = [
   { field: 'horasExtra', title: 'Horas extra', hint: 'Cantidad de horas, no monto.', suffix: 'horas' },
   { field: 'otrosIngresos', title: 'Otros ingresos', hint: 'Bonos u otros pagos de esta quincena.', prefix: 'C$' },
 ];
-// 2. Deducciones (se restan del neto)
+// 2. Deducciones (se restan del neto). GRECE Comida fue eliminada.
 const DEDUCTION_FIELDS: readonly FieldMeta[] = [
   { field: 'consumo', title: 'Consumo', hint: 'Consumo en el restaurante a descontar.', prefix: 'C$' },
   { field: 'prestamo', title: 'Mi Prestamito', hint: 'Cuota de Mi Prestamito a descontar.', prefix: 'C$' },
-  { field: 'greceComida', title: 'GRECE Comida', hint: 'Descuento de comida GRECE.', prefix: 'C$' },
   { field: 'otros', title: 'Otras deducciones', hint: 'Cualquier otra deducción.', prefix: 'C$' },
 ];
 // "Limpiar" deja en cero extras y deducciones; salario y días laborados no se tocan.
 const CLEARABLE_FIELDS: readonly PayrollField[] = [
-  'diasVacaciones', 'horasExtra', 'otrosIngresos', 'consumo', 'prestamo', 'greceComida', 'otros',
+  'diasVacaciones', 'horasExtra', 'otrosIngresos', 'consumo', 'prestamo', 'otros',
 ];
 const DEDUCTION_LABELS: Record<string, string> = {
-  consumo: 'Consumo', prestamo: 'Mi Prestamito', greceComida: 'GRECE Comida', otros: 'Otros',
+  consumo: 'Consumo', prestamo: 'Mi Prestamito', otros: 'Otros',
 };
 
 type Tone = 'income' | 'deduction';
@@ -50,8 +49,8 @@ function NumberField({ label, hint, prefix, suffix, value, error, tone, classNam
   onChange: (value: string) => void;
 }) {
   const id = useId();
-  return <div className={cn('min-w-0 space-y-2', className)}>
-    <label htmlFor={id} className="block text-base font-semibold text-foreground">{label}</label>
+  return <div className={cn('min-w-0 space-y-1.5', className)}>
+    <label htmlFor={id} className="block text-sm font-semibold text-foreground">{label}</label>
     <div className="relative">
       {prefix && <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-base font-semibold text-muted-foreground">{prefix}</span>}
       <Input
@@ -61,7 +60,7 @@ function NumberField({ label, hint, prefix, suffix, value, error, tone, classNam
       />
       {suffix && <span className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-sm font-medium text-muted-foreground">{suffix}</span>}
     </div>
-    {error ? <p className="text-sm font-medium text-red-600">{error}</p> : hint && <p className="text-sm text-muted-foreground">{hint}</p>}
+    {error ? <p className="text-sm font-medium text-red-600">{error}</p> : hint && <p className="text-xs text-muted-foreground">{hint}</p>}
   </div>;
 }
 
@@ -83,14 +82,15 @@ function FormSection({ step, title, description, summaryLabel, summaryValue, ton
         <p className={cn('text-lg font-bold tabular-nums', style.total)}>{summaryValue}</p>
       </div>
     </header>
-    <div className="mt-6 space-y-6">{children}</div>
+    <div className="mt-5 space-y-5">{children}</div>
   </section>;
 }
 
+// Tres columnas en pantallas grandes: los campos de una misma fila se ven y se comparan de un vistazo.
 function FieldGroup({ title, children }: { title: string; children: ReactNode }) {
-  return <div className="space-y-3">
+  return <div className="space-y-2.5">
     <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{title}</p>
-    <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">{children}</div>
+    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">{children}</div>
   </div>;
 }
 
@@ -125,13 +125,11 @@ export function PayrollDetail({ row, periodLabel, fortnightLabel, canPersist, is
   // El formulario trabaja con texto para poder escribir decimales ("250.") sin que se pierdan.
   const [form, setForm] = useState<FormValues>(() => inputsToForm(row.inputs));
   const [feedback, setFeedback] = useState<{ kind: 'success' | 'error'; text: string } | null>(null);
-  // 2.0: por defecto solo se deduce INSS; el IR se activa a mano (p. ej. empleados que no son pasantes/temporales).
-  const [aplicaIR, setAplicaIR] = useState<boolean>(!!row.inputs.aplicaIR);
-  // 2.7: pasantes/temporales que no cotizan. Por defecto SÍ cotizan INSS.
+  // 2.7: pasantes/temporales que no cotizan. Por defecto SÍ cotizan INSS. (La retención de IR fue eliminada.)
   const [excluirINSS, setExcluirINSS] = useState<boolean>(!!row.inputs.excluirINSS);
 
   const maxDays = row.eligibility.days;
-  const parsed = useMemo(() => parseFormValues(form, maxDays, aplicaIR, excluirINSS), [form, maxDays, aplicaIR, excluirINSS]);
+  const parsed = useMemo(() => parseFormValues(form, maxDays, false, excluirINSS), [form, maxDays, excluirINSS]);
   const c = parsed.values ? calcularTotales(parsed.values) : null;
   // dirty = distinto a lo que se muestra; changedVsBase = distinto a lo guardado en la hoja (o a los valores por defecto)
   const dirty = parsed.values ? !sameInputs(parsed.values, row.inputs) : true;
@@ -145,7 +143,7 @@ export function PayrollDetail({ row, periodLabel, fortnightLabel, canPersist, is
     setForm((current) => ({ ...current, [field]: value }));
   };
   const handleClear = () => {
-    setFeedback(null); // no toca aplicaIR: es una condición del empleado, no un extra ni una deducción
+    setFeedback(null);
     setForm((current) => ({ ...current, ...Object.fromEntries(CLEARABLE_FIELDS.map((field) => [field, '0'])) }));
   };
   const handleSave = async () => {
@@ -158,7 +156,6 @@ export function PayrollDetail({ row, periodLabel, fortnightLabel, canPersist, is
     <NumberField
       key={meta.field} tone={tone} label={meta.title} prefix={meta.prefix} suffix={meta.suffix}
       hint={meta.field === 'diasLaborados' ? `${meta.hint} Le corresponden ${maxDays} de ${PAYROLL_CONSTANTS.fortnightDays}.` : meta.hint}
-      className={meta.wide ? 'sm:col-span-2' : undefined}
       value={form[meta.field]} error={parsed.errors[meta.field]} onChange={(value) => setField(meta.field, value)}
     />
   );
@@ -166,106 +163,110 @@ export function PayrollDetail({ row, periodLabel, fortnightLabel, canPersist, is
   const savedAt = formatDateTime(row.status === 'saved' || row.status === 'draft' || row.status === 'conflict' ? row.version : null);
   const deductionRows: { label: string; amount: number }[] = c && parsed.values ? [
     ...(c.inssLaboral > 0 ? [{ label: `INSS laboral (${formatPercent(PAYROLL_CONSTANTS.employeeInssRate)})`, amount: c.inssLaboral }] : []),
-    ...(c.irLaboral > 0 ? [{ label: 'IR laboral', amount: c.irLaboral }] : []),
-    ...(['consumo', 'prestamo', 'greceComida', 'otros'] as const)
+    ...(['consumo', 'prestamo', 'otros'] as const)
       .filter((field) => parsed.values![field] > 0)
       .map((field) => ({ label: DEDUCTION_LABELS[field], amount: parsed.values![field] })),
   ] : [];
 
-  return <div className="space-y-6">
-    <div className="grid gap-3 rounded-xl bg-[#80CED7]/10 p-5 sm:grid-cols-2 lg:grid-cols-4">
-      <div><p className="text-xs text-muted-foreground">Nombre completo</p><p className="font-semibold">{row.nombreCompleto}</p></div>
-      <div><p className="text-xs text-muted-foreground">Cédula</p><p className="font-semibold">{row.cedula}</p></div>
-      <div><p className="text-xs text-muted-foreground">Cargo</p><p className="font-semibold">{row.cargo || '-'}</p></div>
-      <div><p className="text-xs text-muted-foreground">Restaurante</p><p className="font-semibold">{row.restaurante}</p></div>
-    </div>
+  const statusText = row.status === 'saved' ? 'Datos leídos de la hoja; puede modificarlos y guardar.'
+    : hasDraft ? 'Hay cambios en borrador, todavía no guardados en la hoja.'
+    : 'Aún no hay datos guardados para este periodo.';
 
-    <p className="text-sm text-muted-foreground">
-      Corresponden <strong>{maxDays}</strong> de {PAYROLL_CONSTANTS.fortnightDays} días en esta quincena{row.eligibility.reason ? ` (${row.eligibility.reason.toLowerCase()})` : ''}.
-      {' '}{row.status === 'saved' ? 'Datos leídos de la hoja; puede modificarlos y guardar.' : hasDraft ? 'Hay cambios en borrador, todavía no guardados en la hoja.' : 'Aún no hay datos guardados para este periodo.'}
-    </p>
+  return <div className="space-y-5">
+    {/* Quién es el empleado y qué quincena se está editando */}
+    <div className="rounded-xl bg-[#80CED7]/10 p-5">
+      <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-1">
+        <div>
+          <p className="text-xs text-muted-foreground">Empleado</p>
+          <p className="text-2xl font-bold leading-tight text-foreground">{row.nombreCompleto}</p>
+        </div>
+        <p className="text-sm text-muted-foreground">{fortnightLabel} · {periodLabel}</p>
+      </div>
+      <div className="mt-3 grid gap-3 sm:grid-cols-3">
+        <div><p className="text-xs text-muted-foreground">Cédula</p><p className="font-semibold">{row.cedula}</p></div>
+        <div><p className="text-xs text-muted-foreground">Cargo</p><p className="font-semibold">{row.cargo || '-'}</p></div>
+        <div><p className="text-xs text-muted-foreground">Restaurante</p><p className="font-semibold">{row.restaurante}</p></div>
+      </div>
+      <p className="mt-3 text-sm text-muted-foreground">
+        Corresponden <strong>{maxDays}</strong> de {PAYROLL_CONSTANTS.fortnightDays} días en esta quincena{row.eligibility.reason ? ` (${row.eligibility.reason.toLowerCase()})` : ''}. {statusText}
+      </p>
+    </div>
 
     {row.issues.length > 0 && <div className="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700">{row.issues.join(' · ')}. Corrija la ficha del empleado para poder guardar.</div>}
     {row.warnings.length > 0 && <div className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">{row.warnings.join(' · ')}</div>}
 
-    {c && parsed.values && <Card className="border-[#80CED7]/60">
-      <CardHeader className="pb-2">
-        <CardTitle className="text-base">Deducciones de esta quincena</CardTitle>
-        <p className="text-xs text-muted-foreground">{fortnightLabel} · {periodLabel} · {savedAt ? `guardado el ${savedAt}` : 'aún sin guardar en la hoja'}</p>
-      </CardHeader>
-      <CardContent className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead><tr className="border-b text-left text-muted-foreground">
-            <th className="py-2">Tipo de deducción</th><th className="py-2">Fecha</th><th className="py-2 text-right">Quincenal</th><th className="py-2 text-right">Mensual (×2)</th>
-          </tr></thead>
-          <tbody>
-            {deductionRows.map(({ label, amount }) => <tr key={label} className="border-b last:border-0">
-              <td className="py-2 font-medium">{label}</td>
-              <td className="py-2 text-muted-foreground">{periodLabel}</td>
-              <td className="py-2 text-right">{formatCurrency(amount)}</td>
-              <td className="py-2 text-right">{formatCurrency(amount * 2)}</td>
-            </tr>)}
-            {deductionRows.length === 0 && <tr><td colSpan={4} className="py-3 text-center text-muted-foreground">Sin deducciones en esta quincena.</td></tr>}
-          </tbody>
-          <tfoot><tr className="border-t font-semibold"><td className="py-2">Total deducciones</td><td /><td className="py-2 text-right">{formatCurrency(c.totalDeducciones)}</td><td className="py-2 text-right">{formatCurrency(c.totalDeducciones * 2)}</td></tr></tfoot>
-        </table>
-        <p className="mt-2 text-xs text-muted-foreground">El monto mensual es el equivalente (dos quincenas iguales), solo como referencia.</p>
-      </CardContent>
-    </Card>}
-
-    <div className="grid gap-4 md:grid-cols-3">
+    {/* Totales siempre a la vista */}
+    <div className="grid gap-3 md:grid-cols-3">
       {([['Total devengado', c?.totalDevengado], ['Deducciones', c?.totalDeducciones], ['Neto a pagar', c?.netoPagar]] as const).map(([label, value], index) => (
         <Card key={label} className={index === 2 ? 'border-[#80CED7] bg-[#80CED7]/10' : ''}>
-          <CardContent className="p-5"><p className="text-sm text-muted-foreground">{label}</p><p className="mt-1 text-2xl font-bold text-[#007EA7]">{value === undefined ? '—' : formatCurrency(value)}</p></CardContent>
+          <CardContent className="p-4"><p className="text-sm text-muted-foreground">{label}</p><p className="mt-0.5 text-2xl font-bold tabular-nums text-[#007EA7]">{value === undefined ? '—' : formatCurrency(value)}</p></CardContent>
         </Card>
       ))}
     </div>
 
-    {/* Formulario (izquierda) + desglose en vivo (derecha, fijo al desplazarse en pantallas grandes) */}
-    <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
-      <Card className="min-w-0 border-0 shadow-sm">
-        <CardHeader><CardTitle>{row.nombreCompleto}</CardTitle><p className="text-sm text-muted-foreground">{row.cargo || 'Sin cargo'} · {row.restaurante}</p></CardHeader>
-        <CardContent className="space-y-6">
-          <FormSection
-            step={1} tone="income" title="Ingresos y extras" description="Todo lo que se le paga al empleado en esta quincena."
-            summaryLabel="Total devengado" summaryValue={c ? formatCurrency(c.totalDevengado) : '—'}
-          >
-            <FieldGroup title="Salario y tiempo trabajado">{SALARY_FIELDS.map((meta) => renderField(meta, 'income'))}</FieldGroup>
-            <FieldGroup title="Pagos adicionales">{EXTRA_FIELDS.map((meta) => renderField(meta, 'income'))}</FieldGroup>
-          </FormSection>
+    {/* Formulario (izquierda, ancho) + desglose en vivo (derecha, fijo al desplazarse) */}
+    <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_380px]">
+      <div className="min-w-0 space-y-5">
+        <FormSection
+          step={1} tone="income" title="Ingresos y extras" description="Todo lo que se le paga al empleado en esta quincena."
+          summaryLabel="Total devengado" summaryValue={c ? formatCurrency(c.totalDevengado) : '—'}
+        >
+          <FieldGroup title="Salario y tiempo trabajado">{SALARY_FIELDS.map((meta) => renderField(meta, 'income'))}</FieldGroup>
+          <FieldGroup title="Pagos adicionales">{EXTRA_FIELDS.map((meta) => renderField(meta, 'income'))}</FieldGroup>
+        </FormSection>
 
-          <FormSection
-            step={2} tone="deduction" title="Deducciones (se restan del neto)" description="Descuentos de esta quincena. El INSS y el IR se manejan abajo, en “Retenciones de ley”."
-            summaryLabel="Total a descontar" summaryValue={c ? formatCurrency(c.otrasDeducciones) : '—'}
-          >
-            <FieldGroup title="Descuentos por concepto">{DEDUCTION_FIELDS.map((meta) => renderField(meta, 'deduction'))}</FieldGroup>
-          </FormSection>
+        <FormSection
+          step={2} tone="deduction" title="Deducciones (se restan del neto)" description="Descuentos de esta quincena. El INSS se maneja abajo, en “Retenciones de ley”."
+          summaryLabel="Total a descontar" summaryValue={c ? formatCurrency(c.otrasDeducciones) : '—'}
+        >
+          <FieldGroup title="Descuentos por concepto">{DEDUCTION_FIELDS.map((meta) => renderField(meta, 'deduction'))}</FieldGroup>
+        </FormSection>
 
-          <div className="space-y-3">
-            <p className="text-sm font-semibold text-foreground">Retenciones de ley</p>
-            <div className="grid gap-3 md:grid-cols-2">
-              <label className={cn('flex min-h-[72px] cursor-pointer items-start gap-3 rounded-lg border-2 p-4 text-sm', excluirINSS ? 'border-[#007EA7] bg-[#80CED7]/10' : 'border-muted')}>
-                <input type="checkbox" className="mt-1 h-5 w-5" checked={excluirINSS} onChange={(event) => { setFeedback(null); setExcluirINSS(event.target.checked); }} />
-                <span><span className="text-base font-medium">No cotiza INSS</span><br />
-                  <span className="text-xs text-muted-foreground">Para pasantes o empleados temporales. Si se marca, no se deduce el INSS laboral ni se calcula el patronal.</span></span>
-              </label>
-              <label className={cn('flex min-h-[72px] cursor-pointer items-start gap-3 rounded-lg border-2 p-4 text-sm', aplicaIR ? 'border-[#007EA7] bg-[#80CED7]/10' : 'border-muted')}>
-                <input type="checkbox" className="mt-1 h-5 w-5" checked={aplicaIR} onChange={(event) => { setFeedback(null); setAplicaIR(event.target.checked); }} />
-                <span><span className="text-base font-medium">Retener IR laboral</span><br />
-                  <span className="text-xs text-muted-foreground">Desactivado por defecto: solo se deduce el INSS. Actívelo solo si este empleado debe retener IR.</span></span>
-              </label>
-            </div>
+        <section className="rounded-2xl border p-5 sm:p-6">
+          <h3 className="text-lg font-semibold leading-tight text-foreground">Retenciones de ley</h3>
+          <label className={cn('mt-4 flex min-h-[72px] cursor-pointer items-start gap-3 rounded-lg border-2 p-4 text-sm', excluirINSS ? 'border-[#007EA7] bg-[#80CED7]/10' : 'border-muted')}>
+            <input type="checkbox" className="mt-1 h-5 w-5" checked={excluirINSS} onChange={(event) => { setFeedback(null); setExcluirINSS(event.target.checked); }} />
+            <span><span className="text-base font-medium">No cotiza INSS</span><br />
+              <span className="text-xs text-muted-foreground">Para pasantes o empleados temporales. Si se marca, no se deduce el INSS laboral ni se calcula el patronal. Si no se marca, se deduce el INSS laboral ({formatPercent(PAYROLL_CONSTANTS.employeeInssRate)}).</span></span>
+          </label>
+        </section>
+
+        {parsed.errors.general && <p className="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-700">{parsed.errors.general}</p>}
+
+        {/* Detalle quincenal/mensual: plegado para que el formulario sea lo primero que se ve */}
+        {c && parsed.values && <details className="group rounded-2xl border p-5">
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-3 font-semibold">
+            <span>Ver deducciones quincenales y su equivalente mensual
+              <span className="ml-2 text-xs font-normal text-muted-foreground">{savedAt ? `guardado el ${savedAt}` : 'aún sin guardar en la hoja'}</span></span>
+            <ChevronDown className="h-4 w-4 transition-transform group-open:rotate-180" />
+          </summary>
+          <div className="mt-4 overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead><tr className="border-b text-left text-muted-foreground">
+                <th className="py-2">Tipo de deducción</th><th className="py-2">Fecha</th><th className="py-2 text-right">Quincenal</th><th className="py-2 text-right">Mensual (×2)</th>
+              </tr></thead>
+              <tbody>
+                {deductionRows.map(({ label, amount }) => <tr key={label} className="border-b last:border-0">
+                  <td className="py-2 font-medium">{label}</td>
+                  <td className="py-2 text-muted-foreground">{periodLabel}</td>
+                  <td className="py-2 text-right">{formatCurrency(amount)}</td>
+                  <td className="py-2 text-right">{formatCurrency(amount * 2)}</td>
+                </tr>)}
+                {deductionRows.length === 0 && <tr><td colSpan={4} className="py-3 text-center text-muted-foreground">Sin deducciones en esta quincena.</td></tr>}
+              </tbody>
+              <tfoot><tr className="border-t font-semibold"><td className="py-2">Total deducciones</td><td /><td className="py-2 text-right">{formatCurrency(c.totalDeducciones)}</td><td className="py-2 text-right">{formatCurrency(c.totalDeducciones * 2)}</td></tr></tfoot>
+            </table>
+            <p className="mt-2 text-xs text-muted-foreground">El monto mensual es el equivalente (dos quincenas iguales), solo como referencia.</p>
           </div>
-          {parsed.errors.general && <p className="text-sm text-red-600">{parsed.errors.general}</p>}
-        </CardContent>
-      </Card>
+        </details>}
+      </div>
 
-      <Card className="min-w-0 border-0 shadow-sm lg:sticky lg:top-2">
-        <CardHeader className="pb-3">
-          <CardTitle className="text-lg">Desglose de nómina</CardTitle>
-          <p className="text-sm text-muted-foreground">Se actualiza mientras escribe.</p>
-        </CardHeader>
-        <CardContent className="space-y-5">
+      <Card className="min-w-0 border-0 shadow-sm xl:sticky xl:top-2">
+        <CardContent className="space-y-5 p-5">
+          <div>
+            <p className="text-lg font-semibold">Desglose de nómina</p>
+            <p className="text-sm text-muted-foreground">Se actualiza mientras escribe.</p>
+          </div>
           {c ? <>
             <BreakdownBlock
               title="Ingresos" totalLabel="Total devengado" total={c.totalDevengado}
@@ -275,7 +276,6 @@ export function PayrollDetail({ row, periodLabel, fortnightLabel, canPersist, is
               title="Retenciones y deducciones" totalLabel="Total deducciones" total={-c.totalDeducciones}
               lines={[
                 [excluirINSS ? 'INSS Laboral (no cotiza)' : `INSS Laboral (${formatPercent(PAYROLL_CONSTANTS.employeeInssRate)})`, -c.inssLaboral],
-                ...(aplicaIR ? [['IR Laboral', -c.irLaboral] as [string, number]] : []),
                 ['Otras deducciones', -c.otrasDeducciones],
               ]}
             />
@@ -304,7 +304,8 @@ export function PayrollDetail({ row, periodLabel, fortnightLabel, canPersist, is
       {feedback.kind === 'error' && <Button size="sm" variant="outline" className="gap-2" onClick={onReload}><RefreshCw className="h-4 w-4" />Recargar periodo</Button>}
     </div>}
 
-    <div className="flex flex-col-reverse gap-2 border-t pt-4 sm:flex-row sm:justify-between">
+    {/* Botones siempre visibles al pie del formulario, aunque se desplace */}
+    <div className="sticky -bottom-6 z-10 -mx-6 flex flex-col-reverse gap-2 border-t bg-background/95 px-6 py-4 backdrop-blur sm:flex-row sm:justify-between">
       <Button size="lg" variant="outline" className="h-12 gap-2 text-base" onClick={handleClear} disabled={isSaving}><Eraser className="h-4 w-4" />Limpiar extras y deducciones</Button>
       <div className="flex flex-col-reverse gap-2 sm:flex-row">
         {hasDraft && <Button size="lg" className="h-12 text-base" variant="ghost" disabled={isSaving} onClick={onDiscardDraft}>Descartar borrador</Button>}
